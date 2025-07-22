@@ -1,6 +1,6 @@
 {
   "name": "pici",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
@@ -9,6 +9,7 @@
   "scripts": {
     "prebuild": "rm -rf dist",
     "build": "tsc",
+    "postbuild": "chmod +x dist/index.js",
     "test": "vitest run",
     "dev": "tsx src/index.ts"
   },
