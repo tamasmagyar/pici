@@ -2,6 +2,17 @@
 
 Minimal CLI to install a subset of dependencies from your main package.json.
 
+## Why is this useful?
+
+In most cases, you only need a few specific packages rather than all dependencies. For example:
+
+- **Playwright testing**: You might only need `@playwright/test` and `playwright` for testing, not all your app's dependencies
+- **Development tools**: Just the linter and formatter, not the entire dev stack
+- **CI/CD**: Only the packages needed for building/deploying
+- **Microservices**: A subset of shared dependencies
+
+This saves time, disk space, and reduces potential conflicts.
+
 ## Install
 
 ```bash
