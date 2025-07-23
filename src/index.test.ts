@@ -209,4 +209,21 @@ describe('pici CLI install single package', () => {
     process.argv = ['node', 'src/index.ts', 'install', 'bar'];
     expect(() => main()).toThrow('exit');
   });
+
+  it('installs a package with version from package.json using yarn', () => {
+    mockFs[mainPath] = JSON.stringify({ dependencies: { bar: '2.3.4' } });
+    mockFs[path.join(cwd, 'yarn.lock')] = '';
+    // existsSync will return true for yarn.lock
+    vi.spyOn(fs, 'existsSync').mockImplementation((filePath: any) => {
+      if (filePath.endsWith('yarn.lock')) return true;
+      return !!mockFs[filePath];
+    });
+    process.argv = ['node', 'src/index.ts', 'install', 'bar'];
+    expect(() => main()).not.toThrow();
+    expect(spawnSync).toHaveBeenCalledWith(
+      expect.stringContaining('yarn'),
+      expect.arrayContaining(['add', 'bar@2.3.4']),
+      expect.anything()
+    );
+  });
 });
