@@ -117,8 +117,8 @@ Create a JSON file (e.g., `my-packages.json`) with the dependencies you want:
 }
 ```
 
-- If the version is empty, pici uses the version from your main `package.json`.
-- You can specify any dependency field: `dependencies`, `devDependencies`, etc.
+- If the version is empty, pici uses the version from your main `package.json`. If no version is specified in the custom file and the package is not found in your main `package.json`, pici will warn and skip that package.
+- If a version is specified in the custom file, pici will install that version even if the package is not present in your main `package.json`.
 
 ### Install Packages
 

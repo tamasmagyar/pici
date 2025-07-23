@@ -1,52 +1,19 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { spawnSync } from 'child_process';
-import os from 'os';
+import { getInstallList } from './index';
 
 const DEFAULT_CUSTOM_FILE = 'package.custom.json';
 const MAIN_PACKAGE = 'package.json';
 
-type CustomDeps = { dependencies: { [key: string]: string } };
-
-function readJson(filePath: string): any {
-  return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+interface Dependencies {
+  [packageName: string]: string;
 }
 
-function writeJson(filePath: string, data: any) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n', 'utf-8');
-}
-
-function getInstallList(customFile: string, fields: string[] = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
-  const customPath = path.resolve(process.cwd(), customFile);
-  const mainPath = path.resolve(process.cwd(), MAIN_PACKAGE);
-  if (!fs.existsSync(customPath)) {
-    throw new Error(`Custom file not found: ${customFile}`);
-  }
-  if (!fs.existsSync(mainPath)) {
-    throw new Error(`Main package.json not found`);
-  }
-  const custom: CustomDeps = readJson(customPath);
-  const main = readJson(mainPath);
-  const customDeps = custom.dependencies || {};
-  const mainDeps: Record<string, string> = fields.reduce(
-    (acc: Record<string, string>, field) => ({ ...acc, ...(main[field] || {}) }),
-    {}
-  );
-  const installList: string[] = [];
-  for (const pkg of Object.keys(customDeps)) {
-    const customVersion = customDeps[pkg];
-    if (customVersion && customVersion.trim() !== "") {
-      installList.push(`${pkg}@${customVersion}`);
-      continue;
-    }
-    const version = mainDeps[pkg];
-    if (!version) {
-      continue;
-    }
-    installList.push(`${pkg}@${version}`);
-  }
-  return installList;
+interface PackageFile {
+  dependencies?: Dependencies;
+  peerDependencies?: Dependencies;
+  optionalDependencies?: Dependencies;
 }
 
 describe('pici', () => {
@@ -72,20 +39,20 @@ describe('pici', () => {
 
   it('adds a package to the default custom file', () => {
     mockFs[defaultCustomPath] = JSON.stringify({ dependencies: {} });
-    let custom: CustomDeps = readJson(defaultCustomPath);
-    custom.dependencies['foo'] = '';
-    writeJson(defaultCustomPath, custom);
-    const updated = JSON.parse(mockFs[defaultCustomPath]);
-    expect(updated.dependencies.foo).toBe('');
+    let custom: PackageFile = JSON.parse(mockFs[defaultCustomPath]);
+    custom.dependencies!['foo'] = '';
+    mockFs[defaultCustomPath] = JSON.stringify(custom);
+    const updated: PackageFile = JSON.parse(mockFs[defaultCustomPath]);
+    expect(updated.dependencies!.foo).toBe('');
   });
 
   it('adds a package to a custom file', () => {
     mockFs[customPath] = JSON.stringify({ dependencies: {} });
-    let custom: CustomDeps = readJson(customPath);
-    custom.dependencies['bar'] = '';
-    writeJson(customPath, custom);
-    const updated = JSON.parse(mockFs[customPath]);
-    expect(updated.dependencies.bar).toBe('');
+    let custom: PackageFile = JSON.parse(mockFs[customPath]);
+    custom.dependencies!['bar'] = '';
+    mockFs[customPath] = JSON.stringify(custom);
+    const updated: PackageFile = JSON.parse(mockFs[customPath]);
+    expect(updated.dependencies!.bar).toBe('');
   });
 
   it('gets install list with matching versions from custom file', () => {
@@ -142,6 +109,23 @@ describe('pici', () => {
     mockFs[mainPath] = JSON.stringify({ optionalDependencies: { bar: '1.2.3' } });
     const list = getInstallList(customFileName);
     expect(list).toEqual(['bar@1.2.3']);
+  });
+
+  it('warns if no version is specified in custom file and not found in package.json', () => {
+    mockFs[customPath] = JSON.stringify({ dependencies: { missing: '' } });
+    mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '^1.2.3' } });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const list = getInstallList(customFileName);
+    expect(list).toEqual([]);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("No version specified for 'missing'"));
+    warnSpy.mockRestore();
+  });
+
+  it('installs package with version in custom file even if not in package.json', () => {
+    mockFs[customPath] = JSON.stringify({ dependencies: { notfound: '5.0.0' } });
+    mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '^1.2.3' } });
+    const list = getInstallList(customFileName);
+    expect(list).toEqual(['notfound@5.0.0']);
   });
 });
 

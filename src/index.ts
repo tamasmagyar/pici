@@ -16,7 +16,8 @@ function writeJson(filePath: string, data: any) {
 
 type CustomDeps = { dependencies: { [key: string]: string } };
 
-function getInstallList(customFile: string, fields: string[] = ['dependencies', 'devDependencies']) {
+export function getInstallList(customFile: string, fields?: string[]) {
+  if (!fields) fields = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
   const customPath = path.resolve(process.cwd(), customFile);
   const mainPath = path.resolve(process.cwd(), MAIN_PACKAGE);
   if (!fs.existsSync(customPath)) {
@@ -44,7 +45,7 @@ function getInstallList(customFile: string, fields: string[] = ['dependencies', 
     }
     const version = mainDeps[pkg];
     if (!version) {
-      console.warn(`Warning: ${pkg} not found in selected fields of main package.json`);
+      console.warn(`Warning: No version specified for '${pkg}' in ${customFile} and not found in selected fields of main package.json. This package will be skipped.`);
       continue;
     }
     installList.push(`${pkg}@${version}`);
@@ -138,4 +139,6 @@ function main() {
   process.exit(1);
 }
 
-main(); 
+if (require.main === module) {
+  main();
+} 
