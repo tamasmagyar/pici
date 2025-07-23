@@ -9,6 +9,15 @@ Minimal CLI to install a subset of dependencies from your main `package.json`.
 
 **pici** lets you install only the dependencies you need from your main `package.json`, saving time, disk space, and reducing potential conflicts. Perfect for monorepos, microservices, CI/CD, or when you only need a few tools for testing or development.
 
+## Why is this useful?
+
+In most cases, you only need a few specific packages rather than all dependencies. For example:
+
+- **Playwright testing**: Only need `@playwright/test`
+- **Development tools**: Just the linter and formatter, not the entire dev stack
+- **CI/CD**: Only the packages needed for building/deploying
+- **Microservices**: A subset of shared dependencies
+
 ## Features
 
 - 🏃 Install only a subset of dependencies
@@ -24,8 +33,8 @@ npm install -g pici
 # or
 yarn global add pici
 
-# Install only the dependencies listed in my-packages.json
-pici my-packages.json
+# Install only the dependencies listed in package.test.json
+pici package.test.json
 ```
 
 ## Installation & Usage
@@ -91,22 +100,13 @@ npm run pici -- [args]
 
 Choose the method that best fits your workflow!
 
-## Why is this useful?
-
-In most cases, you only need a few specific packages rather than all dependencies. For example:
-
-- **Playwright testing**: Only need `@playwright/test`
-- **Development tools**: Just the linter and formatter, not the entire dev stack
-- **CI/CD**: Only the packages needed for building/deploying
-- **Microservices**: A subset of shared dependencies
-
 ## Usage
 
 > **Tip:** You can add packages to the custom dependency file at any time using the `pici add <package> [custom-file.json]` command. The file will be created for you if it doesn't exist, or updated if it does.
 
 ### Custom Dependency File Format
 
-Create a JSON file (e.g., `my-packages.json`) with the dependencies you want:
+You can add packages to your custom dependency file by running the `add` command (the file will be created if it doesn't exist), or you can create/edit it manually if you prefer:
 
 ```json
 {
@@ -123,15 +123,15 @@ Create a JSON file (e.g., `my-packages.json`) with the dependencies you want:
 ### Install Packages
 
 ```bash
-pici my-packages.json           # Install from custom file
-pici install my-packages.json   # Explicit install from custom file
+pici package.test.json           # Install from custom file
+pici install package.test.json   # Explicit install from custom file
 pici install                    # Uses package.custom.json by default
 ```
 
 ### Add a Package
 
 ```bash
-pici add lodash my-packages.json
+pici add lodash package.test.json
 pici add lodash                 # Adds to package.custom.json
 ```
 
