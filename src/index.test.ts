@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { getInstallList } from './index';
+import { getInstallList, addPackage } from './index';
 
 const DEFAULT_CUSTOM_FILE = 'package.custom.json';
 const MAIN_PACKAGE = 'package.json';
@@ -39,18 +39,14 @@ describe('pici', () => {
 
   it('adds a package to the default custom file', () => {
     mockFs[defaultCustomPath] = JSON.stringify({ dependencies: {} });
-    let custom: PackageFile = JSON.parse(mockFs[defaultCustomPath]);
-    custom.dependencies!['foo'] = '';
-    mockFs[defaultCustomPath] = JSON.stringify(custom);
+    addPackage('foo');
     const updated: PackageFile = JSON.parse(mockFs[defaultCustomPath]);
     expect(updated.dependencies!.foo).toBe('');
   });
 
   it('adds a package to a custom file', () => {
     mockFs[customPath] = JSON.stringify({ dependencies: {} });
-    let custom: PackageFile = JSON.parse(mockFs[customPath]);
-    custom.dependencies!['bar'] = '';
-    mockFs[customPath] = JSON.stringify(custom);
+    addPackage('bar', customFileName);
     const updated: PackageFile = JSON.parse(mockFs[customPath]);
     expect(updated.dependencies!.bar).toBe('');
   });
