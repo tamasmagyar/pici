@@ -1,6 +1,6 @@
 {
   "name": "pici",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
@@ -16,6 +16,20 @@
   "repository": "git@github.com:tamasmagyar/pici.git",
   "author": "Tomi <20069588+tamasmagyar@users.noreply.github.com>",
   "license": "MIT",
+  "keywords": [
+    "cli",
+    "dependencies",
+    "selective install",
+    "package manager",
+    "npm",
+    "yarn",
+    "ci",
+    "cd",
+    "devtools",
+    "playwright",
+    "minimal",
+    "automation"
+  ],
   "files": [
     "dist"
   ],
