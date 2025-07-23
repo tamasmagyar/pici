@@ -1,7 +1,18 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { getInstallList, addPackage } from './index';
+import { getInstallList, addPackage, main } from './index';
+vi.mock('child_process', () => ({
+  spawnSync: vi.fn(() => ({
+    pid: 1234,
+    output: [],
+    stdout: '',
+    stderr: '',
+    signal: null,
+    status: 0
+  }))
+}));
+import { spawnSync } from 'child_process';
 
 const DEFAULT_CUSTOM_FILE = 'package.custom.json';
 const MAIN_PACKAGE = 'package.json';
@@ -157,13 +168,45 @@ describe('pici CLI', () => {
       return !!mockFs[filePath];
     });
     
-    // Mock spawnSync to capture the command
-    const mockSpawnSync = vi.fn().mockReturnValue({ status: 0 });
-    vi.spyOn(require('child_process'), 'spawnSync').mockImplementation(mockSpawnSync);
-    
-    // This would test the runInstall function, but since it's not exported, 
-    // we can just verify the yarn.lock detection works
     const yarnLockPath = path.join(cwd, 'yarn.lock');
     expect(fs.existsSync(yarnLockPath)).toBe(true);
+  });
+});
+
+describe('pici CLI install single package', () => {
+  const cwd = '/mock';
+  const mainPath = path.join(cwd, MAIN_PACKAGE);
+  let mockFs: Record<string, string>;
+  let origArgv: string[];
+  let exitSpy: any;
+
+  beforeEach(() => {
+    mockFs = {};
+    vi.spyOn(process, 'cwd').mockReturnValue(cwd);
+    vi.spyOn(fs, 'readFileSync').mockImplementation((filePath: any) => {
+      if (mockFs[filePath]) return mockFs[filePath];
+      throw new Error('File not found: ' + filePath);
+    });
+    vi.spyOn(fs, 'existsSync').mockImplementation((filePath: any) => !!mockFs[filePath]);
+    origArgv = process.argv;
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+  });
+
+  afterEach(() => {
+    process.argv = origArgv;
+    vi.restoreAllMocks();
+  });
+
+  it('installs a package with version from package.json', () => {
+    mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '1.2.3' } });
+    process.argv = ['node', 'src/index.ts', 'install', 'foo'];
+    expect(() => main()).not.toThrow();
+    expect(spawnSync).toHaveBeenCalledWith(expect.stringContaining('npm'), expect.arrayContaining(['install', 'foo@1.2.3']), expect.anything());
+  });
+
+  it('throws error if package not found in package.json', () => {
+    mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '1.2.3' } });
+    process.argv = ['node', 'src/index.ts', 'install', 'bar'];
+    expect(() => main()).toThrow('exit');
   });
 });

@@ -126,7 +126,16 @@ You can add packages to your custom dependency file by running the `add` command
 pici package.test.json           # Install from custom file
 pici install package.test.json   # Explicit install from custom file
 pici install                    # Uses package.custom.json by default
+pici install <package>          # Installs a single package with version from package.json
 ```
+
+If you only need to install a single package, you can run:
+
+```bash
+pici install <packagename>
+```
+
+This will pick up the version from your main `package.json` and install it. If the package is not found, pici will throw an error.
 
 ### Add a Package
 

@@ -46,7 +46,7 @@ Usage:
   pici help`);
 }
 
-function main() {
+export function main() {
   const [, , cmd, ...args] = process.argv;
   if (!cmd || cmd === 'help' || cmd.startsWith('-')) return help();
   if (cmd === 'add') {
@@ -57,6 +57,28 @@ function main() {
     return write(f, c), console.log(`Added ${pkg} to ${file}`);
   }
   let file = DEF, fields = FIELDS;
+  // if 'install' and next arg is not a .json or --fields, treat as package
+  if (cmd === 'install') {
+    const [firstArg, ...restArgs] = args;
+    if (firstArg && !firstArg.endsWith('.json') && !firstArg.startsWith('--')) {
+      // treat as package name
+      const pkg = firstArg;
+      const m = read(path.resolve(MAIN));
+      let version = undefined;
+      for (const f of fields) {
+        if (m[f] && m[f][pkg]) {
+          version = m[f][pkg];
+          break;
+        }
+      }
+      if (!version) {
+        console.error(`Error: Package '${pkg}' not found in ${MAIN}.`);
+        process.exit(1);
+      }
+      run([`${pkg}@${version}`]);
+      return;
+    }
+  }
   for (const a of [cmd, ...args]) {
     if (a.endsWith('.json')) file = a;
     if (a.startsWith('--fields=')) fields = a.slice(9).split(',').map(f => f.trim());
