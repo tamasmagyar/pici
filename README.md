@@ -13,12 +13,23 @@ Install only the dependencies you need from your main `package.json`, saving tim
 
 ## Installation
 
+### Local development
+
 ```bash
 npm install -g pici
 # or
 yarn global add pici
-# or use without installing
-npx pici
+```
+
+### CI/CD (recommended)
+
+```bash
+# Use npx with a fixed version for reproducible builds (--yes auto-accepts installation prompt)
+npx --yes pici@3.0.2
+# or shorthand
+npx -y pici@3.0.2
+# or use latest (not recommended for CI)
+npx --yes pici
 ```
 
 ## Usage
@@ -27,25 +38,40 @@ npx pici
 
 ```bash
 # 1. Add packages to a custom file (creates package.custom.json if it doesn't exist)
+# If installed globally:
 pici add react
 pici add lodash package.test.json  # Or use a custom file name
+# Or using npx:
+npx --yes pici add react
+npx --yes pici add lodash package.test.json
 
 # 2. Install from the custom file
+# If installed globally:
 pici install                      # Uses package.custom.json by default
 pici package.test.json           # Or specify a custom file
+# Or using npx:
+npx --yes pici install
+npx --yes pici package.test.json
 ```
 
 ### Install a single package
 
 ```bash
+# If installed globally:
 pici install <package>          # Installs a package with version from package.json
+# Or using npx:
+npx --yes pici install <package>
 ```
 
 ### Add packages to a custom file
 
 ```bash
+# If installed globally:
 pici add lodash                 # Adds to package.custom.json
 pici add lodash package.test.json  # Adds to custom file
+# Or using npx:
+npx --yes pici add lodash
+npx --yes pici add lodash package.test.json
 ```
 
 ### Custom file format
@@ -63,7 +89,10 @@ Create a JSON file (e.g., `package.test.json`):
 
 Then install from it:
 ```bash
+# If installed globally:
 pici install package.test.json
+# Or using npx:
+npx --yes pici install package.test.json
 ```
 
 - Empty version: Uses version from main `package.json`
@@ -72,7 +101,10 @@ pici install package.test.json
 ### Specify dependency fields
 
 ```bash
+# If installed globally:
 pici install --fields=dependencies,devDependencies
+# Or using npx:
+npx --yes pici install --fields=dependencies,devDependencies
 ```
 
 By default, reads from `dependencies`, `devDependencies`, `peerDependencies`, and `optionalDependencies`.
