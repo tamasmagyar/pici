@@ -7,6 +7,8 @@ Minimal CLI to install a subset of dependencies from your main `package.json`.
 
 Install only the dependencies you need from your main `package.json`, saving time and disk space. Perfect for monorepos, microservices, CI/CD, or when you only need a few tools.
 
+Uses `npm install --no-save` under the hood, so it won't modify your `package.json` file.
+
 ## Installation
 
 ```bash
@@ -76,7 +78,7 @@ By default, reads from `dependencies`, `devDependencies`, `peerDependencies`, an
 ## Features
 
 - Install only a subset of dependencies
-- Works with npm and yarn (auto-detected)
+- Uses npm with `--no-save` (doesn't modify `package.json`)
 - Supports all dependency fields
 - Custom dependency files
 
