@@ -7,7 +7,9 @@ Minimal CLI to install a subset of dependencies from your main `package.json`.
 
 Install only the dependencies you need from your main `package.json`, saving time and disk space. Perfect for monorepos, microservices, CI/CD, or when you only need a few tools.
 
-Uses `npm install --no-save` under the hood, so it won't modify your `package.json` file.
+**How it works:** Temporarily creates a minimal `package.json` with only the packages you want to install, runs `npm install`, then restores your original files. Your `package.json`, `package-lock.json`, and `yarn.lock` files are automatically backed up and restored.
+
+> **Note:** Temporary backup files (`.pici.backup`) may appear briefly during installation but are automatically cleaned up.
 
 ## Installation
 
@@ -78,7 +80,8 @@ By default, reads from `dependencies`, `devDependencies`, `peerDependencies`, an
 ## Features
 
 - Install only a subset of dependencies
-- Uses npm with `--no-save` (doesn't modify `package.json`)
+- Automatically backs up and restores `package.json`, `package-lock.json`, and `yarn.lock`
+- Safe to use with yarn projects (doesn't modify `yarn.lock`)
 - Supports all dependency fields
 - Custom dependency files
 
