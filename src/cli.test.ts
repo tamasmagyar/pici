@@ -7,6 +7,8 @@ vi.mock('node:fs', () => ({
   readFileSync: vi.fn(),
   writeFileSync: vi.fn(),
   existsSync: vi.fn(() => false),
+  copyFileSync: vi.fn(),
+  unlinkSync: vi.fn(),
 }));
 
 vi.mock('child_process', () => ({
@@ -41,6 +43,14 @@ describe('cli', () => {
       mockFs[filePath] = data;
     });
     vi.mocked(fs.existsSync).mockImplementation((filePath: string) => !!mockFs[filePath]);
+    vi.mocked(fs.copyFileSync).mockImplementation((src: string, dest: string) => {
+      if (mockFs[src]) {
+        mockFs[dest] = mockFs[src];
+      }
+    });
+    vi.mocked(fs.unlinkSync).mockImplementation((filePath: string) => {
+      delete mockFs[filePath];
+    });
     origArgv = process.argv;
     vi.spyOn(process, 'exit').mockImplementation(() => {
       throw new Error('exit');
@@ -168,7 +178,13 @@ describe('cli', () => {
         executeCommand('install', ['foo']);
         expect(spawnSync).toHaveBeenCalledWith(
           expect.stringContaining('npm'),
-          expect.arrayContaining(['install', '--no-save', 'foo@1.2.3']),
+          expect.arrayContaining([
+            'install',
+            '--package-lock=false',
+            '--no-audit',
+            '--no-fund',
+            '--legacy-peer-deps',
+          ]),
           expect.anything()
         );
       });
@@ -188,7 +204,13 @@ describe('cli', () => {
         executeCommand('install', ['bar']);
         expect(spawnSync).toHaveBeenCalledWith(
           expect.stringContaining('npm'),
-          expect.arrayContaining(['install', '--no-save', 'bar@2.3.4']),
+          expect.arrayContaining([
+            'install',
+            '--package-lock=false',
+            '--no-audit',
+            '--no-fund',
+            '--legacy-peer-deps',
+          ]),
           expect.anything()
         );
       });
@@ -200,7 +222,13 @@ describe('cli', () => {
         executeCommand('install', ['my-custom.json']);
         expect(spawnSync).toHaveBeenCalledWith(
           expect.stringContaining('npm'),
-          expect.arrayContaining(['install', '--no-save', 'foo@1.2.3']),
+          expect.arrayContaining([
+            'install',
+            '--package-lock=false',
+            '--no-audit',
+            '--no-fund',
+            '--legacy-peer-deps',
+          ]),
           expect.anything()
         );
       });
@@ -226,7 +254,13 @@ describe('cli', () => {
 
       expect(spawnSync).toHaveBeenCalledWith(
         expect.stringContaining('npm'),
-        expect.arrayContaining(['install', '--no-save', 'foo@1.2.3']),
+        expect.arrayContaining([
+          'install',
+          '--package-lock=false',
+          '--no-audit',
+          '--no-fund',
+          '--legacy-peer-deps',
+        ]),
         expect.anything()
       );
     });
@@ -239,7 +273,13 @@ describe('cli', () => {
       expect(() => main()).not.toThrow();
       expect(spawnSync).toHaveBeenCalledWith(
         expect.stringContaining('npm'),
-        expect.arrayContaining(['install', '--no-save', 'foo@1.2.3']),
+        expect.arrayContaining([
+          'install',
+          '--package-lock=false',
+          '--no-audit',
+          '--no-fund',
+          '--legacy-peer-deps',
+        ]),
         expect.anything()
       );
     });
@@ -256,7 +296,13 @@ describe('cli', () => {
       expect(() => main()).not.toThrow();
       expect(spawnSync).toHaveBeenCalledWith(
         expect.stringContaining('npm'),
-        expect.arrayContaining(['install', '--no-save', 'bar@2.3.4']),
+        expect.arrayContaining([
+          'install',
+          '--package-lock=false',
+          '--no-audit',
+          '--no-fund',
+          '--legacy-peer-deps',
+        ]),
         expect.anything()
       );
     });
