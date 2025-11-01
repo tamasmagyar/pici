@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { PackageJson, CustomPackageJson } from './types';
 import { logError } from './logger';
 
@@ -35,4 +36,35 @@ export function fileExists(filePath: string): boolean {
     logError(`Failed to check if file exists ${filePath}`);
     return false;
   }
+}
+
+export interface FileBackup {
+  path: string;
+  backupPath: string;
+  exists: boolean;
+}
+
+export function backupFile(filePath: string): FileBackup {
+  const resolvedPath = path.resolve(filePath);
+  const backupPath = `${resolvedPath}.pici.backup`;
+  const exists = fs.existsSync(resolvedPath);
+
+  if (exists) {
+    fs.copyFileSync(resolvedPath, backupPath);
+  }
+
+  return { path: resolvedPath, backupPath, exists };
+}
+
+export function restoreFile(backup: FileBackup): void {
+  if (!backup.exists || !fs.existsSync(backup.backupPath)) {
+    return;
+  }
+
+  if (fs.existsSync(backup.path)) {
+    fs.unlinkSync(backup.path);
+  }
+
+  fs.copyFileSync(backup.backupPath, backup.path);
+  fs.unlinkSync(backup.backupPath);
 }

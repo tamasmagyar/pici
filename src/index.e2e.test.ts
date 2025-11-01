@@ -112,4 +112,89 @@ describe('pici CLI e2e', () => {
     const nodeModulesPath = path.join(tempDir, 'node_modules', 'gitlab-yaml-parser');
     expect(fs.existsSync(nodeModulesPath)).toBe(true);
   }, 10000);
+
+  it('restores package.json after installation', () => {
+    const originalPackageJson = {
+      name: 'test-project',
+      version: '1.0.0',
+      dependencies: { 'gitlab-yaml-parser': '^0.2.2' },
+    };
+    const packageJsonPath = path.join(tempDir, 'package.json');
+    fs.writeFileSync(packageJsonPath, JSON.stringify(originalPackageJson, null, 2) + '\n');
+
+    run(`${CLI} install gitlab-yaml-parser`, tempDir);
+
+    // Verify package.json is restored to original
+    const restored = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+    expect(restored).toEqual(originalPackageJson);
+  }, 10000);
+
+  it('restores package-lock.json after installation', () => {
+    const originalLockContent = '{"lockfileVersion": 2}\n';
+    const lockPath = path.join(tempDir, 'package-lock.json');
+    fs.writeFileSync(lockPath, originalLockContent);
+
+    fs.writeFileSync(
+      path.join(tempDir, 'package.custom.json'),
+      JSON.stringify({ dependencies: { 'gitlab-yaml-parser': '' } }, null, 2)
+    );
+
+    run(`${CLI} install`, tempDir);
+
+    // Verify package-lock.json is restored to original
+    const restored = fs.readFileSync(lockPath, 'utf-8');
+    expect(restored).toBe(originalLockContent);
+  }, 10000);
+
+  it('restores yarn.lock after installation', () => {
+    const originalLockContent = '# yarn lockfile v1\n# test content\n';
+    const lockPath = path.join(tempDir, 'yarn.lock');
+    fs.writeFileSync(lockPath, originalLockContent);
+
+    fs.writeFileSync(
+      path.join(tempDir, 'package.custom.json'),
+      JSON.stringify({ dependencies: { 'gitlab-yaml-parser': '' } }, null, 2)
+    );
+
+    run(`${CLI} install`, tempDir);
+
+    // Verify yarn.lock is restored to original
+    const restored = fs.readFileSync(lockPath, 'utf-8');
+    expect(restored).toBe(originalLockContent);
+  }, 10000);
+
+  it('restores all files (package.json, package-lock.json, yarn.lock) after installation', () => {
+    const originalPackageJson = {
+      name: 'test-project',
+      version: '1.0.0',
+      dependencies: { 'gitlab-yaml-parser': '^0.2.2' },
+    };
+    const originalLockContent = '{"lockfileVersion": 2}\n';
+    const originalYarnLockContent = '# yarn lockfile v1\n# test\n';
+
+    const packageJsonPath = path.join(tempDir, 'package.json');
+    const packageLockPath = path.join(tempDir, 'package-lock.json');
+    const yarnLockPath = path.join(tempDir, 'yarn.lock');
+
+    fs.writeFileSync(packageJsonPath, JSON.stringify(originalPackageJson, null, 2) + '\n');
+    fs.writeFileSync(packageLockPath, originalLockContent);
+    fs.writeFileSync(yarnLockPath, originalYarnLockContent);
+
+    fs.writeFileSync(
+      path.join(tempDir, 'package.custom.json'),
+      JSON.stringify({ dependencies: { 'gitlab-yaml-parser': '' } }, null, 2)
+    );
+
+    run(`${CLI} install`, tempDir);
+
+    // Verify all files are restored
+    const restoredPackageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+    expect(restoredPackageJson).toEqual(originalPackageJson);
+
+    const restoredPackageLock = fs.readFileSync(packageLockPath, 'utf-8');
+    expect(restoredPackageLock).toBe(originalLockContent);
+
+    const restoredYarnLock = fs.readFileSync(yarnLockPath, 'utf-8');
+    expect(restoredYarnLock).toBe(originalYarnLockContent);
+  }, 10000);
 });
