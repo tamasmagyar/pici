@@ -5,162 +5,80 @@ Minimal CLI to install a subset of dependencies from your main `package.json`.
 [![npm version](https://img.shields.io/npm/v/pici.svg)](https://npmjs.org/package/pici)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Overview
+Install only the dependencies you need from your main `package.json`, saving time and disk space. Perfect for monorepos, microservices, CI/CD, or when you only need a few tools.
 
-**pici** lets you install only the dependencies you need from your main `package.json`, saving time, disk space, and reducing potential conflicts. Perfect for monorepos, microservices, CI/CD, or when you only need a few tools for testing or development.
-
-## Why is this useful?
-
-In most cases, you only need a few specific packages rather than all dependencies. For example:
-
-- **Playwright testing**: Only need `@playwright/test`
-- **Development tools**: Just the linter and formatter, not the entire dev stack
-- **CI/CD**: Only the packages needed for building/deploying
-- **Microservices**: A subset of shared dependencies
-
-## Features
-
-- 🏃 Install only a subset of dependencies
-- ⚡ Faster installs for testing, CI, or microservices
-- 📝 Custom dependency files supported
-- 🔧 Supports all dependency fields (`dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`)
-- 📦 Works with npm and yarn
-
-## Quick Start
+## Installation
 
 ```bash
 npm install -g pici
 # or
 yarn global add pici
-
-# Install only the dependencies listed in package.test.json
-pici package.test.json
+# or use without installing
+npx pici
 ```
-
-## Installation & Usage
-
-> **Important:** To use the CLI globally, your global npm or yarn bin directory must be in your `PATH` environment variable, regardless of which shell you use. See below for how to add it if needed.
-
-You can use **pici** in several ways:
-
-### 1. Global Install (Recommended for CLI use)
-
-Install globally with npm or yarn:
-```bash
-npm install -g pici
-# or
-yarn global add pici
-```
-Then run:
-```bash
-pici [args]
-```
-> **Note:** If you get a "command not found" error, ensure your global npm/yarn bin directory is in your `PATH`.  
-> You can typically add it by editing your shell configuration file (e.g., `.zshrc`, `.bashrc`, `.bash_profile`, etc.) and adding a line like:
-> ```sh
-> export PATH="$PATH:$(npm bin -g):$(yarn global bin)"
-> ```
-> Use the one(s) relevant to your package manager (npm or yarn).
-
----
-
-### 2. Use with npx (No install needed)
-
-You can run pici directly with npx (npm 5.2+):
-```bash
-npx pici [args]
-```
-
----
-
-### 3. Local Project Install
-
-Install as a dev dependency:
-```bash
-npm install --save-dev pici
-# or
-yarn add --dev pici
-```
-Then use it via npm/yarn scripts or with npx:
-```bash
-npx pici [args]
-```
-Or add to your `package.json` scripts:
-```json
-"scripts": {
-  "pici": "pici"
-}
-```
-and run:
-```bash
-npm run pici -- [args]
-```
-
----
-
-Choose the method that best fits your workflow!
 
 ## Usage
 
-> **Tip:** You can add packages to the custom dependency file at any time using the `pici add <package> [custom-file.json]` command. The file will be created for you if it doesn't exist, or updated if it does.
+### Example workflow
 
-### Custom Dependency File Format
+```bash
+# 1. Add packages to a custom file (creates package.custom.json if it doesn't exist)
+pici add react
+pici add lodash package.test.json  # Or use a custom file name
 
-You can add packages to your custom dependency file by running the `add` command (the file will be created if it doesn't exist), or you can create/edit it manually if you prefer:
+# 2. Install from the custom file
+pici install                      # Uses package.custom.json by default
+pici package.test.json           # Or specify a custom file
+```
+
+### Install a single package
+
+```bash
+pici install <package>          # Installs a package with version from package.json
+```
+
+### Add packages to a custom file
+
+```bash
+pici add lodash                 # Adds to package.custom.json
+pici add lodash package.test.json  # Adds to custom file
+```
+
+### Custom file format
+
+Create a JSON file (e.g., `package.test.json`):
 
 ```json
 {
   "dependencies": {
     "react": "",         // Uses version from package.json
-    "lodash": "4.17.21"  // Uses this version instead
+    "lodash": "4.17.21"  // Uses this specific version
   }
 }
 ```
 
-- If the version is empty, pici uses the version from your main `package.json`. If no version is specified in the custom file and the package is not found in your main `package.json`, pici will warn and skip that package.
-- If a version is specified in the custom file, pici will install that version even if the package is not present in your main `package.json`.
-
-### Install Packages
-
+Then install from it:
 ```bash
-pici package.test.json           # Install from custom file
-pici install package.test.json   # Explicit install from custom file
-pici install                    # Uses package.custom.json by default
-pici install <package>          # Installs a single package with version from package.json
+pici install package.test.json
 ```
 
-If you only need to install a single package, you can run:
+- Empty version: Uses version from main `package.json`
+- Specified version: Installs that version directly
 
-```bash
-pici install <packagename>
-```
-
-This will pick up the version from your main `package.json` and install it. If the package is not found, pici will throw an error.
-
-### Add a Package
-
-```bash
-pici add lodash package.test.json
-pici add lodash                 # Adds to package.custom.json
-```
-
-### Specify Dependency Fields
-
-By default, pici reads from all dependency fields. You can restrict this:
+### Specify dependency fields
 
 ```bash
 pici install --fields=dependencies,devDependencies
-pici install --fields=peerDependencies,optionalDependencies
 ```
 
-## Configuration
+By default, reads from `dependencies`, `devDependencies`, `peerDependencies`, and `optionalDependencies`.
 
-- **Custom file**: By default, pici looks for `package.custom.json` if no file is specified.
-- **Fields**: Supports `dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`.
+## Features
 
-## Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request.
+- Install only a subset of dependencies
+- Works with npm and yarn (auto-detected)
+- Supports all dependency fields
+- Custom dependency files
 
 ## License
 

@@ -1,6 +1,6 @@
 {
   "name": "pici",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
@@ -11,10 +11,14 @@
     "build": "tsc",
     "postbuild": "chmod +x dist/index.js",
     "test": "vitest run",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "format": "prettier --write \"src/**/*.{ts,json}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,json}\""
   },
   "repository": "git@github.com:tamasmagyar/pici.git",
-  "author": "Tomi <20069588+tamasmagyar@users.noreply.github.com>",
+  "author": "Tamas Magyar",
   "license": "MIT",
   "keywords": [
     "cli",
@@ -36,9 +40,16 @@
   ],
   "devDependencies": {
     "@types/node": "^24.1.0",
-    "ts-node": "^10.9.2",
+    "@typescript-eslint/eslint-plugin": "^8.46.2",
+    "@typescript-eslint/parser": "^8.46.2",
+    "eslint": "^9.39.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "prettier": "^3.6.2",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
+    "typescript-eslint": "^8.46.2",
     "vitest": "^3.2.4"
-  }
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
