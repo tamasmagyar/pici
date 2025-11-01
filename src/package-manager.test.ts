@@ -1,12 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import * as fs from 'node:fs';
 import { spawnSync } from 'child_process';
-import { detectPackageManager, installPackages } from './package-manager';
-import { PackageManager } from './types';
-
-vi.mock('node:fs', () => ({
-  existsSync: vi.fn(),
-}));
+import { installPackages } from './package-manager';
 
 vi.mock('child_process', () => ({
   spawnSync: vi.fn(() => ({
@@ -20,25 +14,8 @@ vi.mock('child_process', () => ({
 }));
 
 describe('package-manager', () => {
-  const mockExistsSync = vi.mocked(fs.existsSync);
-
   beforeEach(() => {
     vi.clearAllMocks();
-    mockExistsSync.mockReturnValue(false);
-  });
-
-  describe('detectPackageManager', () => {
-    it('detects yarn when yarn.lock exists', () => {
-      mockExistsSync.mockImplementation((path: string) => {
-        return path === 'yarn.lock';
-      });
-      expect(detectPackageManager()).toBe(PackageManager.YARN);
-    });
-
-    it('detects npm when yarn.lock does not exist', () => {
-      mockExistsSync.mockReturnValue(false);
-      expect(detectPackageManager()).toBe(PackageManager.NPM);
-    });
   });
 
   describe('installPackages', () => {
@@ -47,26 +24,11 @@ describe('package-manager', () => {
       expect(spawnSync).not.toHaveBeenCalled();
     });
 
-    it('calls npm install with packages when yarn.lock does not exist', () => {
-      mockExistsSync.mockReturnValue(false);
+    it('calls npm install --no-save with packages', () => {
       installPackages(['foo@1.2.3', 'bar@2.3.4']);
       expect(spawnSync).toHaveBeenCalledWith(
-        PackageManager.NPM,
-        ['install', 'foo@1.2.3', 'bar@2.3.4'],
-        {
-          stdio: 'inherit',
-        }
-      );
-    });
-
-    it('calls yarn add with packages when yarn.lock exists', () => {
-      mockExistsSync.mockImplementation((path: string) => {
-        return path === 'yarn.lock';
-      });
-      installPackages(['foo@1.2.3', 'bar@2.3.4']);
-      expect(spawnSync).toHaveBeenCalledWith(
-        PackageManager.YARN,
-        ['add', 'foo@1.2.3', 'bar@2.3.4'],
+        'npm',
+        ['install', '--no-save', 'foo@1.2.3', 'bar@2.3.4'],
         {
           stdio: 'inherit',
         }

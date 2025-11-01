@@ -168,7 +168,7 @@ describe('cli', () => {
         executeCommand('install', ['foo']);
         expect(spawnSync).toHaveBeenCalledWith(
           expect.stringContaining('npm'),
-          expect.arrayContaining(['install', 'foo@1.2.3']),
+          expect.arrayContaining(['install', '--no-save', 'foo@1.2.3']),
           expect.anything()
         );
       });
@@ -183,17 +183,12 @@ describe('cli', () => {
         errorSpy.mockRestore();
       });
 
-      it('installs a package with version from package.json using yarn', () => {
+      it('installs a package with version from package.json (always uses npm)', () => {
         mockFs[mainPath] = JSON.stringify({ dependencies: { bar: '2.3.4' } });
-        mockFs[path.join(cwd, 'yarn.lock')] = '';
-        vi.mocked(fs.existsSync).mockImplementation((filePath: string) => {
-          if (filePath === 'yarn.lock') return true;
-          return !!mockFs[filePath];
-        });
         executeCommand('install', ['bar']);
         expect(spawnSync).toHaveBeenCalledWith(
-          expect.stringContaining('yarn'),
-          expect.arrayContaining(['add', 'bar@2.3.4']),
+          expect.stringContaining('npm'),
+          expect.arrayContaining(['install', '--no-save', 'bar@2.3.4']),
           expect.anything()
         );
       });
@@ -205,7 +200,7 @@ describe('cli', () => {
         executeCommand('install', ['my-custom.json']);
         expect(spawnSync).toHaveBeenCalledWith(
           expect.stringContaining('npm'),
-          expect.arrayContaining(['install', 'foo@1.2.3']),
+          expect.arrayContaining(['install', '--no-save', 'foo@1.2.3']),
           expect.anything()
         );
       });
@@ -231,7 +226,7 @@ describe('cli', () => {
 
       expect(spawnSync).toHaveBeenCalledWith(
         expect.stringContaining('npm'),
-        expect.arrayContaining(['install', 'foo@1.2.3']),
+        expect.arrayContaining(['install', '--no-save', 'foo@1.2.3']),
         expect.anything()
       );
     });
@@ -244,7 +239,7 @@ describe('cli', () => {
       expect(() => main()).not.toThrow();
       expect(spawnSync).toHaveBeenCalledWith(
         expect.stringContaining('npm'),
-        expect.arrayContaining(['install', 'foo@1.2.3']),
+        expect.arrayContaining(['install', '--no-save', 'foo@1.2.3']),
         expect.anything()
       );
     });
@@ -255,18 +250,13 @@ describe('cli', () => {
       expect(() => main()).toThrow('exit');
     });
 
-    it('installs a package with version from package.json using yarn', () => {
+    it('installs a package with version from package.json (always uses npm)', () => {
       mockFs[mainPath] = JSON.stringify({ dependencies: { bar: '2.3.4' } });
-      mockFs[path.join(cwd, 'yarn.lock')] = '';
-      vi.mocked(fs.existsSync).mockImplementation((filePath: string) => {
-        if (filePath === 'yarn.lock') return true;
-        return !!mockFs[filePath];
-      });
       process.argv = ['node', 'src/index.ts', 'install', 'bar'];
       expect(() => main()).not.toThrow();
       expect(spawnSync).toHaveBeenCalledWith(
-        expect.stringContaining('yarn'),
-        expect.arrayContaining(['add', 'bar@2.3.4']),
+        expect.stringContaining('npm'),
+        expect.arrayContaining(['install', '--no-save', 'bar@2.3.4']),
         expect.anything()
       );
     });
