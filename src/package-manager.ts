@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { spawnSync } from 'child_process';
 import { logError, logInfo } from './logger';
 import { MAIN_PACKAGE_FILE } from './constants';
-import { backupFile, restoreFile } from './file-utils';
+import { stashFile, unstashFile } from './file-utils';
 
 function writePackageJson(packageJsonPath: string, packages: string[]): void {
   const dependencies: Record<string, string> = {};
@@ -25,12 +25,9 @@ function writePackageJson(packageJsonPath: string, packages: string[]): void {
   fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2) + '\n');
 }
 
-function removeLockFiles(lockBackups: Array<{ path: string; exists: boolean }>): void {
-  for (const backup of lockBackups) {
-    if (backup.exists && fs.existsSync(backup.path)) {
-      fs.unlinkSync(backup.path);
-    }
-  }
+function removeLockFiles(_lockBackups: Array<{ originalPath: string; exists: boolean }>): void {
+  // Lock files are already stashed to .pici.backup, so nothing to do here
+  // They'll be restored in the finally block
 }
 
 function runNpmInstall(packages: string[]): void {
@@ -57,17 +54,45 @@ export function installPackages(packages: string[]): void {
   }
 
   const packageJsonPath = path.resolve(MAIN_PACKAGE_FILE);
-  const packageJsonBackup = backupFile(MAIN_PACKAGE_FILE);
-  const packageLockBackup = backupFile('package-lock.json');
-  const yarnLockBackup = backupFile('yarn.lock');
+  const tempPackageJsonPath = `${packageJsonPath}.pici.temp`;
+  const packageLockBackup = stashFile('package-lock.json');
+  const yarnLockBackup = stashFile('yarn.lock');
+  let packageJsonBackup: ReturnType<typeof stashFile> | null = null;
 
   try {
-    writePackageJson(packageJsonPath, packages);
+    // Create minimal package.json in temp location first
+    writePackageJson(tempPackageJsonPath, packages);
+
+    // Only stash original after temp file is successfully created
+    packageJsonBackup = stashFile(MAIN_PACKAGE_FILE);
+
+    // Move temp file to final location
+    if (fs.existsSync(tempPackageJsonPath)) {
+      fs.renameSync(tempPackageJsonPath, packageJsonPath);
+    }
+
     removeLockFiles([packageLockBackup, yarnLockBackup]);
     runNpmInstall(packages);
+  } catch (error) {
+    // If anything fails, clean up temp file
+    if (fs.existsSync(tempPackageJsonPath)) {
+      fs.unlinkSync(tempPackageJsonPath);
+    }
+    throw error;
   } finally {
-    restoreFile(packageJsonBackup);
-    restoreFile(packageLockBackup);
-    restoreFile(yarnLockBackup);
+    // Remove the temporary minimal package.json
+    if (fs.existsSync(packageJsonPath)) {
+      fs.unlinkSync(packageJsonPath);
+    }
+    // Clean up temp file if it still exists
+    if (fs.existsSync(tempPackageJsonPath)) {
+      fs.unlinkSync(tempPackageJsonPath);
+    }
+    // Restore original files
+    if (packageJsonBackup) {
+      unstashFile(packageJsonBackup);
+    }
+    unstashFile(packageLockBackup);
+    unstashFile(yarnLockBackup);
   }
 }

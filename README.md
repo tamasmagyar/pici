@@ -25,9 +25,9 @@ yarn global add pici
 
 ```bash
 # Use npx with a fixed version for reproducible builds (--yes auto-accepts installation prompt)
-npx --yes pici@3.0.2
+npx --yes pici@3.1.0
 # or shorthand
-npx -y pici@3.0.2
+npx -y pici@3.1.0
 # or use latest (not recommended for CI)
 npx --yes pici
 ```

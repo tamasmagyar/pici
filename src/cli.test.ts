@@ -7,7 +7,7 @@ vi.mock('node:fs', () => ({
   readFileSync: vi.fn(),
   writeFileSync: vi.fn(),
   existsSync: vi.fn(() => false),
-  copyFileSync: vi.fn(),
+  renameSync: vi.fn(),
   unlinkSync: vi.fn(),
 }));
 
@@ -43,9 +43,10 @@ describe('cli', () => {
       mockFs[filePath] = data;
     });
     vi.mocked(fs.existsSync).mockImplementation((filePath: string) => !!mockFs[filePath]);
-    vi.mocked(fs.copyFileSync).mockImplementation((src: string, dest: string) => {
+    vi.mocked(fs.renameSync).mockImplementation((src: string, dest: string) => {
       if (mockFs[src]) {
         mockFs[dest] = mockFs[src];
+        delete mockFs[src];
       }
     });
     vi.mocked(fs.unlinkSync).mockImplementation((filePath: string) => {

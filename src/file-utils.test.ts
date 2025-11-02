@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as fs from 'node:fs';
-import { readJsonFile, writeJsonFile, fileExists, backupFile, restoreFile } from './file-utils';
+import { readJsonFile, writeJsonFile, fileExists, stashFile, unstashFile } from './file-utils';
 import type { PackageJson, CustomPackageJson } from './types';
 
 vi.mock('node:fs', () => ({
   readFileSync: vi.fn(),
   writeFileSync: vi.fn(),
   existsSync: vi.fn(),
-  copyFileSync: vi.fn(),
+  renameSync: vi.fn(),
   unlinkSync: vi.fn(),
 }));
 
@@ -121,73 +121,72 @@ describe('file-utils', () => {
     });
   });
 
-  describe('backupFile', () => {
-    const mockCopyFileSync = vi.mocked(fs.copyFileSync);
+  describe('stashFile', () => {
+    const mockRenameSync = vi.mocked(fs.renameSync);
 
     beforeEach(() => {
       vi.clearAllMocks();
     });
 
-    it('creates backup when file exists', () => {
+    it('stashes file when file exists', () => {
       mockExistsSync.mockReturnValue(true);
 
-      const result = backupFile('test.json');
+      const result = stashFile('test.json');
 
       expect(mockExistsSync).toHaveBeenCalled();
-      expect(mockCopyFileSync).toHaveBeenCalled();
+      expect(mockRenameSync).toHaveBeenCalled();
       expect(result.exists).toBe(true);
-      expect(result.path).toContain('test.json');
+      expect(result.originalPath).toContain('test.json');
       expect(result.backupPath).toContain('.pici.backup');
     });
 
-    it('does not create backup when file does not exist', () => {
+    it('does not stash when file does not exist', () => {
       mockExistsSync.mockReturnValue(false);
 
-      const result = backupFile('missing.json');
+      const result = stashFile('missing.json');
 
-      expect(mockCopyFileSync).not.toHaveBeenCalled();
+      expect(mockRenameSync).not.toHaveBeenCalled();
       expect(result.exists).toBe(false);
     });
   });
 
-  describe('restoreFile', () => {
-    const mockCopyFileSync = vi.mocked(fs.copyFileSync);
+  describe('unstashFile', () => {
+    const mockRenameSync = vi.mocked(fs.renameSync);
     const mockUnlinkSync = vi.mocked(fs.unlinkSync);
 
     beforeEach(() => {
       vi.clearAllMocks();
     });
 
-    it('restores file from backup', () => {
+    it('unstashes file from backup', () => {
       mockExistsSync.mockImplementation((filePath: string) => {
         return filePath.includes('.pici.backup') || filePath.includes('test.json');
       });
 
       const backup = {
-        path: '/path/to/test.json',
+        originalPath: '/path/to/test.json',
         backupPath: '/path/to/test.json.pici.backup',
         exists: true,
       };
 
-      restoreFile(backup);
+      unstashFile(backup);
 
-      expect(mockUnlinkSync).toHaveBeenCalledWith(backup.path);
-      expect(mockCopyFileSync).toHaveBeenCalledWith(backup.backupPath, backup.path);
-      expect(mockUnlinkSync).toHaveBeenCalledWith(backup.backupPath);
+      expect(mockUnlinkSync).toHaveBeenCalledWith(backup.originalPath);
+      expect(mockRenameSync).toHaveBeenCalledWith(backup.backupPath, backup.originalPath);
     });
 
-    it('does nothing if backup does not exist', () => {
+    it('does nothing if file was not stashed originally', () => {
       mockExistsSync.mockReturnValue(false);
 
       const backup = {
-        path: '/path/to/test.json',
+        originalPath: '/path/to/test.json',
         backupPath: '/path/to/test.json.pici.backup',
         exists: false,
       };
 
-      restoreFile(backup);
+      unstashFile(backup);
 
-      expect(mockCopyFileSync).not.toHaveBeenCalled();
+      expect(mockRenameSync).not.toHaveBeenCalled();
       expect(mockUnlinkSync).not.toHaveBeenCalled();
     });
 
@@ -197,14 +196,14 @@ describe('file-utils', () => {
       });
 
       const backup = {
-        path: '/path/to/test.json',
+        originalPath: '/path/to/test.json',
         backupPath: '/path/to/test.json.pici.backup',
         exists: true,
       };
 
-      restoreFile(backup);
+      unstashFile(backup);
 
-      expect(mockCopyFileSync).not.toHaveBeenCalled();
+      expect(mockRenameSync).not.toHaveBeenCalled();
     });
   });
 });

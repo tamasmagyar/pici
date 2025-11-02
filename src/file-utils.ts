@@ -39,32 +39,32 @@ export function fileExists(filePath: string): boolean {
 }
 
 export interface FileBackup {
-  path: string;
+  originalPath: string;
   backupPath: string;
   exists: boolean;
 }
 
-export function backupFile(filePath: string): FileBackup {
+export function stashFile(filePath: string): FileBackup {
   const resolvedPath = path.resolve(filePath);
   const backupPath = `${resolvedPath}.pici.backup`;
   const exists = fs.existsSync(resolvedPath);
 
   if (exists) {
-    fs.copyFileSync(resolvedPath, backupPath);
+    fs.renameSync(resolvedPath, backupPath);
   }
 
-  return { path: resolvedPath, backupPath, exists };
+  return { originalPath: resolvedPath, backupPath, exists };
 }
 
-export function restoreFile(backup: FileBackup): void {
+export function unstashFile(backup: FileBackup): void {
   if (!backup.exists || !fs.existsSync(backup.backupPath)) {
     return;
   }
 
-  if (fs.existsSync(backup.path)) {
-    fs.unlinkSync(backup.path);
+  // Remove any file that might exist at the original path
+  if (fs.existsSync(backup.originalPath)) {
+    fs.unlinkSync(backup.originalPath);
   }
 
-  fs.copyFileSync(backup.backupPath, backup.path);
-  fs.unlinkSync(backup.backupPath);
+  fs.renameSync(backup.backupPath, backup.originalPath);
 }

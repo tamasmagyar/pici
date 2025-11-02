@@ -5,7 +5,7 @@ import { installPackages } from './package-manager';
 
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(() => false),
-  copyFileSync: vi.fn(),
+  renameSync: vi.fn(),
   readFileSync: vi.fn(),
   writeFileSync: vi.fn(),
   unlinkSync: vi.fn(),
@@ -25,6 +25,7 @@ vi.mock('child_process', () => ({
 describe('package-manager', () => {
   const mockExistsSync = vi.mocked(fs.existsSync);
   const mockWriteFileSync = vi.mocked(fs.writeFileSync);
+  const mockRenameSync = vi.mocked(fs.renameSync);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -43,17 +44,20 @@ describe('package-manager', () => {
 
       installPackages(['foo@1.2.3', 'bar@2.3.4']);
 
-      // Should create minimal package.json with only the specified packages
+      // Should create temp file first, then rename original, then move temp to final
       expect(mockWriteFileSync).toHaveBeenCalled();
-      const writeCall = mockWriteFileSync.mock.calls.find(call =>
-        call[0].toString().includes('package.json')
+      const tempWriteCall = mockWriteFileSync.mock.calls.find(call =>
+        call[0].toString().includes('.pici.temp')
       );
-      expect(writeCall).toBeDefined();
-      const writtenContent = JSON.parse(writeCall![1] as string);
+      expect(tempWriteCall).toBeDefined();
+      const writtenContent = JSON.parse(tempWriteCall![1] as string);
       expect(writtenContent.dependencies).toEqual({
         foo: '1.2.3',
         bar: '2.3.4',
       });
+
+      // Should rename original to backup, then temp to final location
+      expect(mockRenameSync).toHaveBeenCalled();
 
       // Should call npm install without package arguments
       expect(spawnSync).toHaveBeenCalledWith(
@@ -70,10 +74,11 @@ describe('package-manager', () => {
 
       installPackages(['foo', 'bar@2.3.4']);
 
-      const writeCall = mockWriteFileSync.mock.calls.find(call =>
-        call[0].toString().includes('package.json')
+      const tempWriteCall = mockWriteFileSync.mock.calls.find(call =>
+        call[0].toString().includes('.pici.temp')
       );
-      const writtenContent = JSON.parse(writeCall![1] as string);
+      expect(tempWriteCall).toBeDefined();
+      const writtenContent = JSON.parse(tempWriteCall![1] as string);
       expect(writtenContent.dependencies).toEqual({
         foo: '*',
         bar: '2.3.4',
