@@ -197,4 +197,64 @@ describe('pici CLI e2e', () => {
     const restoredYarnLock = fs.readFileSync(yarnLockPath, 'utf-8');
     expect(restoredYarnLock).toBe(originalYarnLockContent);
   }, 10000);
+
+  it('installs only specified packages, not all from package.json', () => {
+    const originalPackageJson = {
+      name: 'test-project',
+      version: '1.0.0',
+      dependencies: {
+        'gitlab-yaml-parser': '^0.2.2',
+        lodash: '^4.17.21',
+      },
+    };
+    const packageJsonPath = path.join(tempDir, 'package.json');
+    fs.writeFileSync(packageJsonPath, JSON.stringify(originalPackageJson, null, 2) + '\n');
+
+    // Install only gitlab-yaml-parser
+    run(`${CLI} install gitlab-yaml-parser`, tempDir);
+
+    // Verify only gitlab-yaml-parser is installed (and its dependencies)
+    const nodeModulesPath = path.join(tempDir, 'node_modules');
+    expect(fs.existsSync(path.join(nodeModulesPath, 'gitlab-yaml-parser'))).toBe(true);
+
+    // Verify other packages from package.json are NOT installed
+    expect(fs.existsSync(path.join(nodeModulesPath, 'lodash'))).toBe(false);
+
+    // Verify package.json is restored
+    const restored = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+    expect(restored).toEqual(originalPackageJson);
+  }, 10000);
+
+  it('installs only packages from custom file, not all from package.json', () => {
+    // Create package.json with multiple dependencies
+    const originalPackageJson = {
+      name: 'test-project',
+      version: '1.0.0',
+      dependencies: {
+        'gitlab-yaml-parser': '^0.2.2',
+        lodash: '^4.17.21',
+      },
+    };
+    const packageJsonPath = path.join(tempDir, 'package.json');
+    fs.writeFileSync(packageJsonPath, JSON.stringify(originalPackageJson, null, 2) + '\n');
+
+    // Create custom file with only gitlab-yaml-parser
+    fs.writeFileSync(
+      path.join(tempDir, 'package.custom.json'),
+      JSON.stringify({ dependencies: { 'gitlab-yaml-parser': '' } }, null, 2)
+    );
+
+    run(`${CLI} install`, tempDir);
+
+    // Verify only gitlab-yaml-parser is installed
+    const nodeModulesPath = path.join(tempDir, 'node_modules');
+    expect(fs.existsSync(path.join(nodeModulesPath, 'gitlab-yaml-parser'))).toBe(true);
+
+    // Verify other packages from package.json are NOT installed
+    expect(fs.existsSync(path.join(nodeModulesPath, 'lodash'))).toBe(false);
+
+    // Verify package.json is restored
+    const restored = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+    expect(restored).toEqual(originalPackageJson);
+  }, 10000);
 });
