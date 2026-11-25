@@ -1,209 +1,121 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
-import { readJsonFile, writeJsonFile, fileExists, stashFile, unstashFile } from './file-utils';
-import type { PackageJson, CustomPackageJson } from './types';
+import {
+  readJsonFile,
+  writeJsonFile,
+  stashFile,
+  unstashFile,
+  describeBackup,
+  isPlainObject,
+} from './file-utils';
+import { useProject } from '../test/helpers/in-process';
 
-vi.mock('node:fs', () => ({
-  readFileSync: vi.fn(),
-  writeFileSync: vi.fn(),
-  existsSync: vi.fn(),
-  renameSync: vi.fn(),
-  unlinkSync: vi.fn(),
-}));
+const context = useProject();
+const withCode = (code: string) => expect.objectContaining({ code });
 
-vi.mock('./logger', () => ({
-  logError: vi.fn(),
-}));
+describe('isPlainObject', () => {
+  it('accepts objects only', () => {
+    expect(isPlainObject({})).toBe(true);
+    for (const value of [null, undefined, [], 'a', 1, true]) {
+      expect(isPlainObject(value)).toBe(false);
+    }
+  });
+});
 
-describe('file-utils', () => {
-  const mockReadFileSync = vi.mocked(fs.readFileSync);
-  const mockWriteFileSync = vi.mocked(fs.writeFileSync);
-  const mockExistsSync = vi.mocked(fs.existsSync);
-
-  beforeEach(() => {
-    vi.clearAllMocks();
+describe('readJsonFile', () => {
+  it('parses a JSON object', () => {
+    context.project.write('a.json', { name: 'a' });
+    expect(readJsonFile('a.json')).toEqual({ name: 'a' });
   });
 
-  describe('readJsonFile', () => {
-    it('reads and parses JSON file', () => {
-      const mockData: PackageJson = { name: 'test', version: '1.0.0' };
-      mockReadFileSync.mockReturnValue(JSON.stringify(mockData));
-
-      const result = readJsonFile<PackageJson>('package.json');
-
-      expect(mockReadFileSync).toHaveBeenCalledWith('package.json', 'utf-8');
-      expect(result).toEqual(mockData);
-    });
-
-    it('reads CustomPackageJson type', () => {
-      const mockData: CustomPackageJson = { dependencies: { foo: '1.0.0' } };
-      mockReadFileSync.mockReturnValue(JSON.stringify(mockData));
-
-      const result = readJsonFile<CustomPackageJson>('custom.json');
-
-      expect(result).toEqual(mockData);
-    });
-
-    it('throws error on file read failure', () => {
-      const error = new Error('File not found');
-      mockReadFileSync.mockImplementation(() => {
-        throw error;
-      });
-
-      expect(() => readJsonFile('missing.json')).toThrow(error);
-    });
-
-    it('throws error on invalid JSON', () => {
-      mockReadFileSync.mockReturnValue('invalid json');
-
-      expect(() => readJsonFile('invalid.json')).toThrow();
-    });
+  it('tolerates a byte order mark', () => {
+    context.project.write('a.json', '\uFEFF{"name":"a"}');
+    expect(readJsonFile('a.json')).toEqual({ name: 'a' });
   });
 
-  describe('writeJsonFile', () => {
-    it('writes JSON file with proper formatting', () => {
-      const data: PackageJson = { name: 'test', version: '1.0.0' };
+  it('reports a missing file', () => {
+    expect(() => readJsonFile('nope.json')).toThrow(withCode('FILE_NOT_FOUND'));
+  });
 
-      writeJsonFile('package.json', data);
+  it('reports an unreadable path', () => {
+    fs.mkdirSync('dir.json');
+    expect(() => readJsonFile('dir.json')).toThrow(withCode('INVALID_FILE'));
+  });
 
-      expect(mockWriteFileSync).toHaveBeenCalledWith(
-        'package.json',
-        JSON.stringify(data, null, 2) + '\n',
-        'utf-8'
-      );
-    });
+  it.each(['', '{', '{"a":1,}', '// comment\n{}'])('reports invalid JSON %j', content => {
+    context.project.write('a.json', content);
+    expect(() => readJsonFile('a.json')).toThrow(/Invalid JSON in a\.json/);
+  });
 
-    it('writes CustomPackageJson', () => {
-      const data: CustomPackageJson = { dependencies: { foo: '1.0.0' } };
+  it.each(['null', '[]', '"text"', '42'])('rejects non-object JSON %s', content => {
+    context.project.write('a.json', content);
+    expect(() => readJsonFile('a.json')).toThrow(/Expected a JSON object/);
+  });
+});
 
-      writeJsonFile('custom.json', data);
+describe('writeJsonFile', () => {
+  it('writes two-space JSON with a trailing newline', () => {
+    writeJsonFile('a.json', { dependencies: { a: '1' } });
+    expect(context.project.read('a.json')).toBe('{\n  "dependencies": {\n    "a": "1"\n  }\n}\n');
+  });
+});
 
-      const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
-      expect(JSON.parse(writtenContent)).toEqual(data);
-    });
+describe('stashFile and unstashFile', () => {
+  it('moves a file aside and back byte for byte', () => {
+    context.project.write('a.txt', 'one\r\ntwo');
 
-    it('throws error on write failure', () => {
-      const error = new Error('Permission denied');
-      mockWriteFileSync.mockImplementation(() => {
-        throw error;
-      });
+    const backup = stashFile('a.txt');
+    expect(context.project.snapshot()).toEqual({ 'a.txt.pici.backup': 'one\r\ntwo' });
 
-      expect(() => writeJsonFile('package.json', {})).toThrow(error);
+    unstashFile(backup);
+    expect(context.project.snapshot()).toEqual({ 'a.txt': 'one\r\ntwo' });
+  });
+
+  it('does nothing for a file that does not exist', () => {
+    const backup = stashFile('a.txt');
+    expect(backup.exists).toBe(false);
+    unstashFile(backup);
+    expect(context.project.snapshot()).toEqual({});
+  });
+
+  it('never overwrites an existing backup', () => {
+    context.project.write('a.txt', 'stub');
+    context.project.write('a.txt.pici.backup', 'only good copy');
+
+    expect(() => stashFile('a.txt')).toThrow(withCode('RESTORE_REQUIRED'));
+    expect(context.project.snapshot()).toEqual({
+      'a.txt': 'stub',
+      'a.txt.pici.backup': 'only good copy',
     });
   });
 
-  describe('fileExists', () => {
-    it('returns true when file exists', () => {
-      mockExistsSync.mockReturnValue(true);
+  it('replaces whatever is at the original path', () => {
+    context.project.write('a.txt', 'original');
+    const backup = stashFile('a.txt');
+    context.project.write('a.txt', 'replacement');
 
-      const result = fileExists('package.json');
+    unstashFile(backup);
 
-      expect(mockExistsSync).toHaveBeenCalledWith('package.json');
-      expect(result).toBe(true);
-    });
-
-    it('returns false when file does not exist', () => {
-      mockExistsSync.mockReturnValue(false);
-
-      const result = fileExists('missing.json');
-
-      expect(result).toBe(false);
-    });
-
-    it('returns false and logs error on exception', () => {
-      mockExistsSync.mockImplementation(() => {
-        throw new Error('Access denied');
-      });
-
-      const result = fileExists('file.json');
-
-      expect(result).toBe(false);
-    });
+    expect(context.project.snapshot()).toEqual({ 'a.txt': 'original' });
   });
 
-  describe('stashFile', () => {
-    const mockRenameSync = vi.mocked(fs.renameSync);
+  it('keeps the current file if the backup has disappeared', () => {
+    context.project.write('a.txt', 'original');
+    const backup = stashFile('a.txt');
+    context.project.write('a.txt', 'current');
+    fs.rmSync(backup.backupPath);
 
-    beforeEach(() => {
-      vi.clearAllMocks();
-    });
-
-    it('stashes file when file exists', () => {
-      mockExistsSync.mockReturnValue(true);
-
-      const result = stashFile('test.json');
-
-      expect(mockExistsSync).toHaveBeenCalled();
-      expect(mockRenameSync).toHaveBeenCalled();
-      expect(result.exists).toBe(true);
-      expect(result.originalPath).toContain('test.json');
-      expect(result.backupPath).toContain('.pici.backup');
-    });
-
-    it('does not stash when file does not exist', () => {
-      mockExistsSync.mockReturnValue(false);
-
-      const result = stashFile('missing.json');
-
-      expect(mockRenameSync).not.toHaveBeenCalled();
-      expect(result.exists).toBe(false);
-    });
+    expect(() => unstashFile(backup)).toThrow();
+    expect(context.project.snapshot()).toEqual({ 'a.txt': 'current' });
   });
 
-  describe('unstashFile', () => {
-    const mockRenameSync = vi.mocked(fs.renameSync);
-    const mockUnlinkSync = vi.mocked(fs.unlinkSync);
-
-    beforeEach(() => {
-      vi.clearAllMocks();
+  it('describes a backup without touching anything', () => {
+    context.project.write('a.txt', 'x');
+    expect(describeBackup('a.txt')).toEqual({
+      originalPath: context.project.resolve('a.txt'),
+      backupPath: context.project.resolve('a.txt.pici.backup'),
+      exists: true,
     });
-
-    it('unstashes file from backup', () => {
-      mockExistsSync.mockImplementation((filePath: string) => {
-        return filePath.includes('.pici.backup') || filePath.includes('test.json');
-      });
-
-      const backup = {
-        originalPath: '/path/to/test.json',
-        backupPath: '/path/to/test.json.pici.backup',
-        exists: true,
-      };
-
-      unstashFile(backup);
-
-      expect(mockUnlinkSync).toHaveBeenCalledWith(backup.originalPath);
-      expect(mockRenameSync).toHaveBeenCalledWith(backup.backupPath, backup.originalPath);
-    });
-
-    it('does nothing if file was not stashed originally', () => {
-      mockExistsSync.mockReturnValue(false);
-
-      const backup = {
-        originalPath: '/path/to/test.json',
-        backupPath: '/path/to/test.json.pici.backup',
-        exists: false,
-      };
-
-      unstashFile(backup);
-
-      expect(mockRenameSync).not.toHaveBeenCalled();
-      expect(mockUnlinkSync).not.toHaveBeenCalled();
-    });
-
-    it('does nothing if backup file is missing', () => {
-      mockExistsSync.mockImplementation((filePath: string) => {
-        return !filePath.includes('.pici.backup');
-      });
-
-      const backup = {
-        originalPath: '/path/to/test.json',
-        backupPath: '/path/to/test.json.pici.backup',
-        exists: true,
-      };
-
-      unstashFile(backup);
-
-      expect(mockRenameSync).not.toHaveBeenCalled();
-    });
+    expect(context.project.snapshot()).toEqual({ 'a.txt': 'x' });
   });
 });

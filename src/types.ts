@@ -23,7 +23,8 @@ export type DependencyField =
   | 'peerDependencies'
   | 'optionalDependencies';
 
-export enum PackageManager {
-  YARN = 'yarn',
-  NPM = 'npm',
+export interface PackageSpec {
+  name: string;
+  /** Empty string means "take the version from the main package.json". */
+  version: string;
 }

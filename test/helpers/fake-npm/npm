@@ -1,0 +1,42 @@
+#!/usr/bin/env node
+// Stand-in for npm. Records what it saw, then behaves as FAKE_NPM_* variables ask.
+const fs = require('fs');
+
+const files = {};
+for (const entry of fs.readdirSync('.', { withFileTypes: true })) {
+  if (entry.isFile()) files[entry.name] = fs.readFileSync(entry.name, 'utf-8');
+}
+if (process.env.FAKE_NPM_LOG) {
+  const call = { args: process.argv.slice(2), files };
+  fs.appendFileSync(process.env.FAKE_NPM_LOG, JSON.stringify(call) + '\n');
+}
+
+process.stdout.write('fake-npm output\n');
+
+const exit = () => process.exit(Number(process.env.FAKE_NPM_EXIT || 0));
+const ready = () => fs.writeFileSync(process.env.FAKE_NPM_READY, 'ready');
+
+switch (process.env.FAKE_NPM_MODE) {
+  case 'hang': // Dies from signals, like a default process.
+    setInterval(() => {}, 1000);
+    ready();
+    break;
+  case 'ignore-and-succeed': // Handles the signal itself and exits successfully.
+    for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => process.exit(0));
+    setInterval(() => {}, 1000);
+    ready();
+    break;
+  case 'kill-self':
+    process.kill(process.pid, 'SIGKILL');
+    break;
+  case 'rewrite-package-json': // Mimics a lifecycle script editing package.json.
+    fs.writeFileSync('package.json', '{"name":"changed-by-script"}');
+    exit();
+    break;
+  case 'delete-backup':
+    fs.rmSync('package.json.pici.backup');
+    exit();
+    break;
+  default:
+    exit();
+}

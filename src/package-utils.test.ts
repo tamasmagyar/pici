@@ -1,156 +1,198 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { getInstallList, addPackage, getPackageVersionFromMain } from './package-utils';
-import { CustomPackageJson } from './types';
-import { DEFAULT_CUSTOM_FILE, MAIN_PACKAGE_FILE } from './constants';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { resolveFromCustomFile, resolveFromNames, addPackages } from './package-utils';
+import { useProject } from '../test/helpers/in-process';
 
-vi.mock('node:fs', () => ({
-  readFileSync: vi.fn(),
-  writeFileSync: vi.fn(),
-  existsSync: vi.fn(() => false),
-}));
+const context = useProject();
+const withCode = (code: string) => expect.objectContaining({ code });
 
-describe('package-utils', () => {
-  const mockFs: Record<string, string> = {};
-  const cwd = '/mock';
-  const defaultCustomPath = path.join(cwd, DEFAULT_CUSTOM_FILE);
-  const customFileName = 'my-custom.json';
-  const customPath = path.join(cwd, customFileName);
-  const mainPath = path.join(cwd, MAIN_PACKAGE_FILE);
+const MAIN = {
+  dependencies: { shared: '1.0.0', dep: '^1.1.0', empty: '' },
+  devDependencies: { shared: '2.0.0', dev: '^2.2.0' },
+  peerDependencies: { shared: '>=3', peer: '>=3.3', empty: '3.0.0' },
+  optionalDependencies: { optional: '4.4.4' },
+};
 
-  beforeEach(() => {
-    Object.keys(mockFs).forEach(key => delete mockFs[key]);
-    vi.spyOn(process, 'cwd').mockReturnValue(cwd);
-    vi.mocked(fs.readFileSync).mockImplementation((filePath: string) => {
-      if (mockFs[filePath]) return mockFs[filePath];
-      throw new Error('File not found: ' + filePath);
-    });
-    vi.mocked(fs.writeFileSync).mockImplementation((filePath: string, data: string) => {
-      mockFs[filePath] = data;
-    });
-    vi.mocked(fs.existsSync).mockImplementation((filePath: string) => !!mockFs[filePath]);
+beforeEach(() => context.project.write('package.json', MAIN));
+
+describe('resolveFromCustomFile', () => {
+  const custom = (dependencies: unknown) => context.project.write('c.json', { dependencies });
+
+  it('uses package.custom.json by default', () => {
+    context.project.write('package.custom.json', { dependencies: { dep: '' } });
+    expect(resolveFromCustomFile().packages).toEqual([{ name: 'dep', version: '^1.1.0' }]);
   });
 
-  describe('addPackage', () => {
-    it('adds a package to the default custom file', () => {
-      mockFs[defaultCustomPath] = JSON.stringify({ dependencies: {} });
-      addPackage('foo');
-      const updated: CustomPackageJson = JSON.parse(mockFs[defaultCustomPath]);
-      expect(updated.dependencies!.foo).toBe('');
-    });
-
-    it('adds a package to a custom file', () => {
-      mockFs[customPath] = JSON.stringify({ dependencies: {} });
-      addPackage('bar', customFileName);
-      const updated: CustomPackageJson = JSON.parse(mockFs[customPath]);
-      expect(updated.dependencies!.bar).toBe('');
-    });
+  it('reads versions from all four fields by default', () => {
+    custom({ dep: '', dev: '', peer: '', optional: '' });
+    expect(resolveFromCustomFile('c.json').packages.map(p => p.version)).toEqual([
+      '^1.1.0',
+      '^2.2.0',
+      '>=3.3',
+      '4.4.4',
+    ]);
   });
 
-  describe('getInstallList', () => {
-    it('gets install list with matching versions from custom file', () => {
-      mockFs[customPath] = JSON.stringify({ dependencies: { foo: '' } });
-      mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '^1.2.3' } });
-      const list = getInstallList(customFileName);
-      expect(list).toEqual(['foo@^1.2.3']);
-    });
+  it('prefers a pinned version and allows packages unknown to package.json', () => {
+    custom({ dep: ' 9.0.0 ', unknown: '1.0.0' });
+    expect(resolveFromCustomFile('c.json').packages).toEqual([
+      { name: 'dep', version: '9.0.0' },
+      { name: 'unknown', version: '1.0.0' },
+    ]);
+  });
 
-    it('gets install list with matching versions from default file', () => {
-      mockFs[defaultCustomPath] = JSON.stringify({ dependencies: { foo: '' } });
-      mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '^1.2.3' } });
-      const list = getInstallList(DEFAULT_CUSTOM_FILE);
-      expect(list).toEqual(['foo@^1.2.3']);
-    });
+  it('treats a blank version as unpinned', () => {
+    custom({ dep: '   ' });
+    expect(resolveFromCustomFile('c.json').packages).toEqual([{ name: 'dep', version: '^1.1.0' }]);
+  });
 
-    it('gets empty install list if version missing in custom file', () => {
-      mockFs[customPath] = JSON.stringify({ dependencies: { bar: '' } });
-      mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '^1.2.3' } });
-      const list = getInstallList(customFileName);
-      expect(list).toEqual([]);
-    });
+  it('gives priority to the earliest field', () => {
+    custom({ shared: '' });
+    expect(resolveFromCustomFile('c.json').packages[0].version).toBe('1.0.0');
+    expect(
+      resolveFromCustomFile('c.json', ['devDependencies', 'dependencies']).packages[0].version
+    ).toBe('2.0.0');
+  });
 
-    it('uses custom version if defined in custom file', () => {
-      mockFs[customPath] = JSON.stringify({ dependencies: { foo: '2.0.0' } });
-      mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '^1.2.3' } });
-      const list = getInstallList(customFileName);
-      expect(list).toEqual(['foo@2.0.0']);
-    });
+  it('falls through an empty version to a later field', () => {
+    custom({ empty: '' });
+    expect(resolveFromCustomFile('c.json').packages).toEqual([{ name: 'empty', version: '3.0.0' }]);
+  });
 
-    it('gets install list with peerDependencies using fields option', () => {
-      mockFs[customPath] = JSON.stringify({ dependencies: { foo: '' } });
-      mockFs[mainPath] = JSON.stringify({ peerDependencies: { foo: '^9.9.9' } });
-      const list = getInstallList(customFileName, ['peerDependencies']);
-      expect(list).toEqual(['foo@^9.9.9']);
-    });
-
-    it('gets install list with optionalDependencies using fields option', () => {
-      mockFs[customPath] = JSON.stringify({ dependencies: { bar: '' } });
-      mockFs[mainPath] = JSON.stringify({ optionalDependencies: { bar: '1.2.3' } });
-      const list = getInstallList(customFileName, ['optionalDependencies']);
-      expect(list).toEqual(['bar@1.2.3']);
-    });
-
-    it('gets install list with peerDependencies by default', () => {
-      mockFs[customPath] = JSON.stringify({ dependencies: { foo: '' } });
-      mockFs[mainPath] = JSON.stringify({ peerDependencies: { foo: '^9.9.9' } });
-      const list = getInstallList(customFileName);
-      expect(list).toEqual(['foo@^9.9.9']);
-    });
-
-    it('gets install list with optionalDependencies by default', () => {
-      mockFs[customPath] = JSON.stringify({ dependencies: { bar: '' } });
-      mockFs[mainPath] = JSON.stringify({ optionalDependencies: { bar: '1.2.3' } });
-      const list = getInstallList(customFileName);
-      expect(list).toEqual(['bar@1.2.3']);
-    });
-
-    it('warns if no version is specified in custom file and not found in package.json', () => {
-      mockFs[customPath] = JSON.stringify({ dependencies: { missing: '' } });
-      mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '^1.2.3' } });
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const list = getInstallList(customFileName);
-      expect(list).toEqual([]);
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining("No version specified for 'missing'")
-      );
-      warnSpy.mockRestore();
-    });
-
-    it('installs package with version in custom file even if not in package.json', () => {
-      mockFs[customPath] = JSON.stringify({ dependencies: { notfound: '5.0.0' } });
-      mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '^1.2.3' } });
-      const list = getInstallList(customFileName);
-      expect(list).toEqual(['notfound@5.0.0']);
+  it('reports packages it cannot resolve', () => {
+    custom({ dep: '', nope: '', dev: '' });
+    expect(resolveFromCustomFile('c.json', ['dependencies'])).toEqual({
+      packages: [{ name: 'dep', version: '^1.1.0' }],
+      skipped: ['nope', 'dev'],
     });
   });
 
-  describe('getPackageVersionFromMain', () => {
-    it('returns version from dependencies field', () => {
-      mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '1.2.3' } });
-      const version = getPackageVersionFromMain('foo');
-      expect(version).toBe('1.2.3');
-    });
+  it.each(['constructor', 'toString', 'hasownproperty', 'valueOf'])(
+    'does not resolve %s from Object.prototype',
+    name => {
+      custom({ [name]: '' });
+      expect(resolveFromCustomFile('c.json')).toEqual({ packages: [], skipped: [name] });
+    }
+  );
 
-    it('returns version from peerDependencies field', () => {
-      mockFs[mainPath] = JSON.stringify({ peerDependencies: { bar: '2.3.4' } });
-      const version = getPackageVersionFromMain('bar');
-      expect(version).toBe('2.3.4');
-    });
+  it('returns nothing for a file without dependencies', () => {
+    context.project.write('c.json', {});
+    expect(resolveFromCustomFile('c.json')).toEqual({ packages: [], skipped: [] });
+  });
 
-    it('returns undefined if package not found', () => {
-      mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '1.2.3' } });
-      const version = getPackageVersionFromMain('missing');
-      expect(version).toBeUndefined();
-    });
+  it.each([null, [], 'react', { dep: 1 }, { dep: null }])(
+    'rejects malformed dependencies %j',
+    dependencies => {
+      custom(dependencies);
+      expect(() => resolveFromCustomFile('c.json')).toThrow(withCode('INVALID_FILE'));
+    }
+  );
 
-    it('respects custom fields parameter', () => {
-      mockFs[mainPath] = JSON.stringify({
-        dependencies: { foo: '1.2.3' },
-        peerDependencies: { foo: '2.3.4' },
-      });
-      const version = getPackageVersionFromMain('foo', ['peerDependencies']);
-      expect(version).toBe('2.3.4');
+  it('rejects an invalid package name', () => {
+    custom({ 'not valid': '1' });
+    expect(() => resolveFromCustomFile('c.json')).toThrow(withCode('INVALID_PACKAGE'));
+  });
+
+  it('rejects a malformed field in package.json', () => {
+    context.project.write('package.json', { dependencies: ['dep'] });
+    custom({ dep: '' });
+    expect(() => resolveFromCustomFile('c.json')).toThrow(withCode('INVALID_FILE'));
+  });
+
+  it('fails when the custom file is missing', () => {
+    expect(() => resolveFromCustomFile('nope.json')).toThrow(withCode('FILE_NOT_FOUND'));
+  });
+});
+
+describe('resolveFromNames', () => {
+  it('resolves several names', () => {
+    expect(resolveFromNames(['dep', 'dev'])).toEqual([
+      { name: 'dep', version: '^1.1.0' },
+      { name: 'dev', version: '^2.2.0' },
+    ]);
+  });
+
+  it('uses an explicit version as is', () => {
+    expect(resolveFromNames(['dep@5', 'new@1'])).toEqual([
+      { name: 'dep', version: '5' },
+      { name: 'new', version: '1' },
+    ]);
+  });
+
+  it('keeps the last of duplicate names', () => {
+    expect(resolveFromNames(['dep', 'dep@5'])).toEqual([{ name: 'dep', version: '5' }]);
+  });
+
+  it('respects the fields option', () => {
+    expect(resolveFromNames(['shared'], ['peerDependencies'])[0].version).toBe('>=3');
+  });
+
+  it('agrees with resolveFromCustomFile on which field wins', () => {
+    context.project.write('c.json', { dependencies: { shared: '' } });
+    expect(resolveFromNames(['shared'])).toEqual(resolveFromCustomFile('c.json').packages);
+  });
+
+  it('fails as a whole and names every missing package', () => {
+    expect(() => resolveFromNames(['dep', 'x', 'constructor'])).toThrow(
+      "Not found in package.json: 'x', 'constructor'"
+    );
+  });
+});
+
+describe('addPackages', () => {
+  it('creates the default file', () => {
+    expect(addPackages(['react'])).toEqual([{ name: 'react', version: '' }]);
+    expect(context.project.readJson('package.custom.json')).toEqual({
+      dependencies: { react: '' },
     });
+  });
+
+  it('adds several packages, with versions', () => {
+    addPackages(['a', '@s/b@^2'], 'c.json');
+    expect(context.project.readJson('c.json').dependencies).toEqual({ a: '', '@s/b': '^2' });
+  });
+
+  it('keeps a pinned version when the name is added again', () => {
+    context.project.write('c.json', { dependencies: { a: '9.9.9' } });
+    expect(addPackages(['a'], 'c.json')).toEqual([{ name: 'a', version: '9.9.9' }]);
+    expect(context.project.readJson('c.json').dependencies.a).toBe('9.9.9');
+  });
+
+  it('replaces a pinned version when a new one is given', () => {
+    context.project.write('c.json', { dependencies: { a: '1' } });
+    addPackages(['a@2'], 'c.json');
+    expect(context.project.readJson('c.json').dependencies.a).toBe('2');
+  });
+
+  it('preserves unrelated keys', () => {
+    context.project.write('c.json', { name: 'x', extra: { y: 1 } });
+    addPackages(['a'], 'c.json');
+    expect(context.project.readJson('c.json')).toEqual({
+      name: 'x',
+      extra: { y: 1 },
+      dependencies: { a: '' },
+    });
+  });
+
+  it('writes nothing on a dry run', () => {
+    const before = context.project.snapshot();
+    expect(addPackages(['a@1'], 'c.json', { dryRun: true })).toEqual([{ name: 'a', version: '1' }]);
+    expect(context.project.snapshot()).toEqual(before);
+  });
+
+  it.each(['package.json', './package.json'])('refuses to edit %s', file => {
+    const before = context.project.snapshot();
+    expect(() => addPackages(['dep'], file)).toThrow(withCode('USAGE'));
+    expect(context.project.snapshot()).toEqual(before);
+  });
+
+  it('writes nothing if any name is invalid', () => {
+    expect(() => addPackages(['good', 'bad name'], 'c.json')).toThrow(withCode('INVALID_PACKAGE'));
+    expect(context.project.exists('c.json')).toBe(false);
+  });
+
+  it('leaves a corrupt file untouched', () => {
+    context.project.write('c.json', '{oops');
+    expect(() => addPackages(['a'], 'c.json')).toThrow(withCode('INVALID_FILE'));
+    expect(context.project.read('c.json')).toBe('{oops');
   });
 });

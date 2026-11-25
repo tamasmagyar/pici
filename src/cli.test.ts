@@ -1,311 +1,327 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { executeCommand, parseArgs, main } from './cli';
+import { parseArgs, run, main, getVersion, HELP_TEXT } from './cli';
+import { DEFAULT_FIELDS } from './constants';
+import { useProject } from '../test/helpers/in-process';
 
-vi.mock('node:fs', () => ({
-  readFileSync: vi.fn(),
-  writeFileSync: vi.fn(),
-  existsSync: vi.fn(() => false),
-  renameSync: vi.fn(),
-  unlinkSync: vi.fn(),
-}));
+const context = useProject();
+const usage = expect.objectContaining({ code: 'USAGE', exitCode: 2 });
+const MAIN = { dependencies: { foo: '1.2.3', bar: '2.0.0' }, devDependencies: { dev: '3' } };
 
-vi.mock('child_process', () => ({
-  spawnSync: vi.fn(() => ({
-    pid: 1234,
-    output: [],
-    stdout: '',
-    stderr: '',
-    signal: null,
-    status: 0,
-    error: null,
-  })),
-}));
-import { spawnSync } from 'child_process';
+beforeEach(() => {
+  context.project.write('package.json', MAIN);
+});
 
-const MAIN_PACKAGE = 'package.json';
+const installed = () =>
+  context.project.npmCalls().map(call => JSON.parse(call.files['package.json']).dependencies);
 
-describe('cli', () => {
-  const cwd = '/mock';
-  const mainPath = path.join(cwd, MAIN_PACKAGE);
-  let mockFs: Record<string, string>;
-  let origArgv: string[];
+/** Runs with --json and returns the single object printed to stdout. */
+async function runJson(...args: string[]) {
+  const code = await run([...args, '--json']);
+  expect(context.stdout).toHaveLength(1);
+  return { code, output: JSON.parse(context.stdout.pop()!) };
+}
 
-  beforeEach(() => {
-    mockFs = {};
-    vi.spyOn(process, 'cwd').mockReturnValue(cwd);
-    vi.mocked(fs.readFileSync).mockImplementation((filePath: string) => {
-      if (mockFs[filePath]) return mockFs[filePath];
-      throw new Error('File not found: ' + filePath);
-    });
-    vi.mocked(fs.writeFileSync).mockImplementation((filePath: string, data: string) => {
-      mockFs[filePath] = data;
-    });
-    vi.mocked(fs.existsSync).mockImplementation((filePath: string) => !!mockFs[filePath]);
-    vi.mocked(fs.renameSync).mockImplementation((src: string, dest: string) => {
-      if (mockFs[src]) {
-        mockFs[dest] = mockFs[src];
-        delete mockFs[src];
-      }
-    });
-    vi.mocked(fs.unlinkSync).mockImplementation((filePath: string) => {
-      delete mockFs[filePath];
-    });
-    origArgv = process.argv;
-    vi.spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('exit');
+describe('parseArgs', () => {
+  it('has defaults', () => {
+    expect(parseArgs([])).toEqual({
+      command: 'help',
+      operands: [],
+      fields: DEFAULT_FIELDS,
+      json: false,
+      dryRun: false,
     });
   });
 
-  afterEach(() => {
-    process.argv = origArgv;
-    vi.restoreAllMocks();
+  it.each([
+    [['install'], 'install', []],
+    [['install', 'a', 'b'], 'install', ['a', 'b']],
+    [['custom.json'], 'install', ['custom.json']],
+    [['add', 'a', 'c.json'], 'add', ['a', 'c.json']],
+    [['restore'], 'restore', []],
+    [['help'], 'help', []],
+    [['-h'], 'help', []],
+    [['install', '--help'], 'help', []],
+    [['--version'], 'version', []],
+    [['-v'], 'version', []],
+    [['--help', '--version'], 'help', []],
+    [['--version', '--help'], 'help', []],
+    [['--dry-run'], 'help', []],
+    [[''], 'help', []],
+  ])('parses %j', (args, command, operands) => {
+    expect(parseArgs(args)).toMatchObject({ command, operands });
   });
 
-  describe('parseArgs', () => {
-    beforeEach(() => {
-      // parseArgs doesn't need fs mocking, so reset mocks
-      vi.restoreAllMocks();
-    });
-
-    it('parses default values when no args provided', () => {
-      const result = parseArgs([]);
-      expect(result.command).toBe('');
-      expect(result.customFile).toBe('package.custom.json');
-      expect(result.fields).toEqual([
-        'dependencies',
-        'devDependencies',
-        'peerDependencies',
-        'optionalDependencies',
-      ]);
-      expect(result.packageName).toBeUndefined();
-    });
-
-    it('parses custom file from args', () => {
-      const result = parseArgs(['install', 'my-custom.json']);
-      expect(result.customFile).toBe('my-custom.json');
-    });
-
-    it('parses fields from args', () => {
-      const result = parseArgs(['install', '--fields=dependencies,devDependencies']);
-      expect(result.fields).toEqual(['dependencies', 'devDependencies']);
-    });
-
-    it('parses package name for install command', () => {
-      const result = parseArgs(['install', 'foo']);
-      expect(result.packageName).toBe('foo');
-    });
-
-    it('does not parse package name if arg is a json file', () => {
-      const result = parseArgs(['install', 'custom.json']);
-      expect(result.packageName).toBeUndefined();
-      expect(result.customFile).toBe('custom.json');
+  it('accepts options anywhere', () => {
+    expect(parseArgs(['--json', 'install', '--dry-run', 'a'])).toMatchObject({
+      command: 'install',
+      operands: ['a'],
+      json: true,
+      dryRun: true,
     });
   });
 
-  describe('executeCommand', () => {
-    beforeEach(() => {
-      // Restore mocks and re-setup for tests that need fs
-      vi.clearAllMocks();
-      mockFs = {};
-      vi.spyOn(process, 'cwd').mockReturnValue(cwd);
-      vi.mocked(fs.readFileSync).mockImplementation((filePath: string) => {
-        if (mockFs[filePath]) return mockFs[filePath];
-        throw new Error('File not found: ' + filePath);
-      });
-      vi.mocked(fs.writeFileSync).mockImplementation((filePath: string, data: string) => {
-        mockFs[filePath] = data;
-      });
-      vi.mocked(fs.existsSync).mockImplementation((filePath: string) => !!mockFs[filePath]);
-    });
-
-    it('prints help for help command', () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-      executeCommand('help', []);
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[INFO]   : pici - Minimal custom package installer')
-      );
-      consoleSpy.mockRestore();
-    });
-
-    it('prints help when no command provided', () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-      executeCommand('', []);
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[INFO]   : pici - Minimal custom package installer')
-      );
-      consoleSpy.mockRestore();
-    });
-
-    describe('add command', () => {
-      it('adds package to default file without version', () => {
-        const defaultPath = path.join(cwd, 'package.custom.json');
-        mockFs[defaultPath] = JSON.stringify({ dependencies: {} });
-        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
-        executeCommand('add', ['foo']);
-
-        const updated = JSON.parse(mockFs[defaultPath]);
-        expect(updated.dependencies.foo).toBe('');
-        expect(consoleSpy).toHaveBeenCalledWith('[SUCCESS]: Added foo to package.custom.json');
-        consoleSpy.mockRestore();
-      });
-
-      it('adds package to custom file', () => {
-        const customPath = path.join(cwd, 'custom.json');
-        mockFs[customPath] = JSON.stringify({ dependencies: {} });
-        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
-        executeCommand('add', ['bar', 'custom.json']);
-
-        const updated = JSON.parse(mockFs[customPath]);
-        expect(updated.dependencies.bar).toBe('');
-        expect(consoleSpy).toHaveBeenCalledWith('[SUCCESS]: Added bar to custom.json');
-        consoleSpy.mockRestore();
-      });
-
-      it('errors when package name not provided', () => {
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-        executeCommand('add', []);
-        expect(errorSpy).toHaveBeenCalledWith('[ERROR]  : Specify a package.');
-        errorSpy.mockRestore();
-      });
-    });
-
-    describe('install command', () => {
-      it('installs a package with version from package.json', () => {
-        mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '1.2.3' } });
-        executeCommand('install', ['foo']);
-        expect(spawnSync).toHaveBeenCalledWith(
-          expect.stringContaining('npm'),
-          expect.arrayContaining([
-            'install',
-            '--package-lock=false',
-            '--no-audit',
-            '--no-fund',
-            '--legacy-peer-deps',
-          ]),
-          expect.anything()
-        );
-      });
-
-      it('throws error if package not found in package.json', () => {
-        mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '1.2.3' } });
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-        expect(() => executeCommand('install', ['bar'])).toThrow('exit');
-        expect(errorSpy).toHaveBeenCalledWith(
-          "[ERROR]  : Package 'bar' not found in package.json."
-        );
-        errorSpy.mockRestore();
-      });
-
-      it('installs a package with version from package.json (always uses npm)', () => {
-        mockFs[mainPath] = JSON.stringify({ dependencies: { bar: '2.3.4' } });
-        executeCommand('install', ['bar']);
-        expect(spawnSync).toHaveBeenCalledWith(
-          expect.stringContaining('npm'),
-          expect.arrayContaining([
-            'install',
-            '--package-lock=false',
-            '--no-audit',
-            '--no-fund',
-            '--legacy-peer-deps',
-          ]),
-          expect.anything()
-        );
-      });
-
-      it('installs packages from custom file', () => {
-        const customPath = path.join(cwd, 'my-custom.json');
-        mockFs[customPath] = JSON.stringify({ dependencies: { foo: '' } });
-        mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '1.2.3' } });
-        executeCommand('install', ['my-custom.json']);
-        expect(spawnSync).toHaveBeenCalledWith(
-          expect.stringContaining('npm'),
-          expect.arrayContaining([
-            'install',
-            '--package-lock=false',
-            '--no-audit',
-            '--no-fund',
-            '--legacy-peer-deps',
-          ]),
-          expect.anything()
-        );
-      });
-
-      it('prints message when no packages to install', () => {
-        const customPath = path.join(cwd, 'empty.json');
-        mockFs[customPath] = JSON.stringify({ dependencies: {} });
-        mockFs[mainPath] = JSON.stringify({ dependencies: {} });
-        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-        executeCommand('install', ['empty.json']);
-        expect(consoleSpy).toHaveBeenCalledWith('[INFO]   : No packages to install.');
-        consoleSpy.mockRestore();
-      });
-    });
-
-    it('treats filename as implicit install command', () => {
-      const customFile = 'my-custom.json';
-      const customPath = path.join(cwd, customFile);
-      mockFs[customPath] = JSON.stringify({ dependencies: { foo: '' } });
-      mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '1.2.3' } });
-
-      executeCommand('install', [customFile]);
-
-      expect(spawnSync).toHaveBeenCalledWith(
-        expect.stringContaining('npm'),
-        expect.arrayContaining([
-          'install',
-          '--package-lock=false',
-          '--no-audit',
-          '--no-fund',
-          '--legacy-peer-deps',
-        ]),
-        expect.anything()
-      );
+  it.each([
+    [['install', '--fields=dependencies, devDependencies']],
+    [['install', '--fields', 'dependencies,devDependencies,']],
+  ])('parses fields from %j', args => {
+    expect(parseArgs(args)).toMatchObject({
+      fields: ['dependencies', 'devDependencies'],
+      operands: [],
     });
   });
 
-  describe('main', () => {
-    it('installs a package with version from package.json', () => {
-      mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '1.2.3' } });
-      process.argv = ['node', 'src/index.ts', 'install', 'foo'];
-      expect(() => main()).not.toThrow();
-      expect(spawnSync).toHaveBeenCalledWith(
-        expect.stringContaining('npm'),
-        expect.arrayContaining([
-          'install',
-          '--package-lock=false',
-          '--no-audit',
-          '--no-fund',
-          '--legacy-peer-deps',
-        ]),
-        expect.anything()
-      );
-    });
+  it.each([
+    [['--fields=']],
+    [['--fields']],
+    [['--fields=dependancies']],
+    [['--fields=dependencies,scripts']],
+    [['--force']],
+    [['--dryrun']],
+    [['-x']],
+  ])('rejects %j', args => {
+    expect(() => parseArgs(['install', ...args])).toThrow(usage);
+  });
 
-    it('throws error if package not found in package.json', () => {
-      mockFs[mainPath] = JSON.stringify({ dependencies: { foo: '1.2.3' } });
-      process.argv = ['node', 'src/index.ts', 'install', 'bar'];
-      expect(() => main()).toThrow('exit');
-    });
+  it.each(['instal', 'remove', 'react'])('rejects unknown command %s', command => {
+    expect(() => parseArgs([command])).toThrow(usage);
+  });
+});
 
-    it('installs a package with version from package.json (always uses npm)', () => {
-      mockFs[mainPath] = JSON.stringify({ dependencies: { bar: '2.3.4' } });
-      process.argv = ['node', 'src/index.ts', 'install', 'bar'];
-      expect(() => main()).not.toThrow();
-      expect(spawnSync).toHaveBeenCalledWith(
-        expect.stringContaining('npm'),
-        expect.arrayContaining([
-          'install',
-          '--package-lock=false',
-          '--no-audit',
-          '--no-fund',
-          '--legacy-peer-deps',
-        ]),
-        expect.anything()
-      );
+describe('run: install', () => {
+  it('installs named packages together', async () => {
+    expect(await run(['install', 'foo', 'bar'])).toBe(0);
+    expect(installed()).toEqual([{ foo: '1.2.3', bar: '2.0.0' }]);
+    expect(context.stdout).toContain('[SUCCESS]: Installed 2 package(s).');
+  });
+
+  it.each([
+    [['install'], 'package.custom.json'],
+    [['install', 'c.json'], 'c.json'],
+    [['c.json'], 'c.json'],
+  ])('installs from a file with %j', async (args, file) => {
+    context.project.write(file, { dependencies: { foo: '' } });
+    expect(await run(args)).toBe(0);
+    expect(installed()).toEqual([{ foo: '1.2.3' }]);
+  });
+
+  it('passes --fields through', async () => {
+    expect(await run(['install', 'dev', '--fields=dependencies'])).toBe(1);
+    expect(await run(['install', 'dev', '--fields=devDependencies'])).toBe(0);
+    expect(installed()).toEqual([{ dev: '3' }]);
+  });
+
+  it('warns about skipped packages and installs the rest', async () => {
+    context.project.write('c.json', { dependencies: { foo: '', nope: '' } });
+    expect(await run(['c.json'])).toBe(0);
+    expect(context.stderr.join()).toContain("No version specified for 'nope'");
+    expect(installed()).toEqual([{ foo: '1.2.3' }]);
+  });
+
+  it('does not run npm when there is nothing to install', async () => {
+    context.project.write('c.json', { dependencies: {} });
+    expect(await run(['c.json'])).toBe(0);
+    expect(context.stdout).toContain('[INFO]   : No packages to install.');
+    expect(installed()).toEqual([]);
+  });
+
+  it('changes nothing on a dry run', async () => {
+    const before = context.project.snapshot();
+    expect(await run(['install', 'foo', '--dry-run'])).toBe(0);
+    expect(context.stdout).toContain('[INFO]   : Would install: foo@1.2.3');
+    expect(context.project.snapshot()).toEqual(before);
+    expect(installed()).toEqual([]);
+  });
+
+  it.each([[['install', 'a.json', 'b.json']], [['install', 'foo', 'a.json']]])(
+    'rejects ambiguous operands %j',
+    async args => {
+      expect(await run(args)).toBe(2);
+      expect(installed()).toEqual([]);
+    }
+  );
+
+  it("returns npm's exit code", async () => {
+    process.env.FAKE_NPM_EXIT = '42';
+    expect(await run(['install', 'foo', '--json'])).toBe(42);
+  });
+
+  it.each(['instal', 'isntall'])('never installs anything for the typo %s', async typo => {
+    context.project.write('package.custom.json', { dependencies: { foo: '' } });
+    expect(await run([typo])).toBe(2);
+    expect(installed()).toEqual([]);
+  });
+});
+
+describe('run: install over another run', () => {
+  // The stub contains 'foo' at a version that must never be read as the user's own.
+  const STUB = { name: 'pici-temp', dependencies: { foo: '0.0.0-stub' } };
+
+  it.each([[[]], [['--dry-run']]])('asks for a restore after a crash %j', async flags => {
+    context.project.write('package.json', STUB);
+    context.project.write('package.json.pici.backup', MAIN);
+    const before = context.project.snapshot();
+
+    for (const name of ['foo', 'bar']) {
+      const { output } = await runJson('install', name, ...flags);
+      expect(output.error.code).toBe('RESTORE_REQUIRED');
+    }
+    expect(context.project.snapshot()).toEqual(before);
+  });
+
+  it.each([[[]], [['--dry-run']]])('waits its turn while another runs %j', async flags => {
+    context.project.write('package.json', STUB);
+    context.project.write('package.json.pici.backup', MAIN);
+    context.project.write('.pici.lock', `${process.pid}`);
+
+    for (const name of ['foo', 'bar']) {
+      const { output } = await runJson('install', name, ...flags);
+      expect(output.error.code).toBe('LOCKED');
+    }
+    expect(installed()).toEqual([]);
+  });
+
+  it('releases the lock when resolving fails', async () => {
+    expect(await run(['install', 'nope'])).toBe(1);
+    expect(context.project.exists('.pici.lock')).toBe(false);
+  });
+});
+
+describe('run: add', () => {
+  it('adds to the default file', async () => {
+    expect(await run(['add', 'foo'])).toBe(0);
+    expect(context.stdout).toContain('[SUCCESS]: Added foo to package.custom.json');
+  });
+
+  it('accepts the file in any position', async () => {
+    expect(await run(['add', 'c.json', 'a', 'b@2'])).toBe(0);
+    expect(context.project.readJson('c.json').dependencies).toEqual({ a: '', b: '2' });
+  });
+
+  it('supports a dry run', async () => {
+    expect(await run(['add', 'a@1', '--dry-run'])).toBe(0);
+    expect(context.stdout).toContain('[INFO]   : Would add a@1 to package.custom.json');
+    expect(context.project.exists('package.custom.json')).toBe(false);
+  });
+
+  it.each([[['add']], [['add', 'c.json']], [['add', 'a', 'b.json', 'c.json']]])(
+    'rejects %j',
+    async args => {
+      expect(await run(args)).toBe(2);
+    }
+  );
+});
+
+describe('run: restore', () => {
+  const strand = () => context.project.write('yarn.lock.pici.backup', 'y');
+
+  it('reports a clean directory', async () => {
+    expect(await run(['restore'])).toBe(0);
+    expect(context.stdout).toContain('[INFO]   : Nothing to restore.');
+  });
+
+  it('previews and then restores', async () => {
+    strand();
+    expect(await run(['restore', '--dry-run'])).toBe(0);
+    expect(context.stdout).toContain('[INFO]   : Would restore: yarn.lock');
+    expect(await run(['restore'])).toBe(0);
+    expect(context.stdout).toContain('[SUCCESS]: Restored: yarn.lock');
+    expect(context.project.read('yarn.lock')).toBe('y');
+  });
+
+  it('takes no operands', async () => {
+    expect(await run(['restore', 'yarn.lock'])).toBe(2);
+  });
+});
+
+describe('run: help and version', () => {
+  it.each([[[]], [['help']], [['--help']]])('prints help for %j', async args => {
+    expect(await run(args)).toBe(0);
+    expect(context.stdout).toEqual([`[INFO]   : ${HELP_TEXT}`]);
+  });
+
+  it('prints the bare version', async () => {
+    expect(await run(['--version'])).toBe(0);
+    expect(context.stdout).toEqual([getVersion()]);
+    expect(getVersion()).toMatch(/^\d+\.\d+\.\d+/);
+  });
+});
+
+describe('run: --json', () => {
+  it('describes an install', async () => {
+    context.project.write('c.json', { dependencies: { foo: '', nope: '' } });
+    const { code, output } = await runJson('c.json');
+    expect(code).toBe(0);
+    expect(output).toEqual({
+      ok: true,
+      command: 'install',
+      dryRun: false,
+      packages: [{ name: 'foo', version: '1.2.3' }],
+      skipped: ['nope'],
     });
+  });
+
+  it('describes an add', async () => {
+    const { output } = await runJson('add', 'a@1', '--dry-run');
+    expect(output).toEqual({
+      ok: true,
+      command: 'add',
+      dryRun: true,
+      file: 'package.custom.json',
+      added: [{ name: 'a', version: '1' }],
+    });
+  });
+
+  it('describes a restore', async () => {
+    expect((await runJson('restore')).output).toMatchObject({ ok: true, restored: [] });
+  });
+
+  it('returns help and version as data', async () => {
+    expect((await runJson('help')).output.help).toBe(HELP_TEXT);
+    expect((await runJson('--version')).output.version).toBe(getVersion());
+  });
+
+  it.each([
+    [['install', 'nope'], 'install', 'PACKAGE_NOT_FOUND', 1],
+    [['missing.json'], 'install', 'FILE_NOT_FOUND', 1],
+    [['add', 'bad name'], 'add', 'INVALID_PACKAGE', 1],
+    [['--wat'], null, 'USAGE', 2],
+  ])('describes the failure of %j', async (args, command, errorCode, exitCode) => {
+    const { code, output } = await runJson(...args);
+    expect(code).toBe(exitCode);
+    expect(output).toEqual({
+      ok: false,
+      command,
+      exitCode,
+      error: { code: errorCode, message: expect.any(String) },
+    });
+  });
+
+  it('reports unexpected errors in the same shape', async () => {
+    fs.chmodSync(context.project.dir, 0o500);
+    try {
+      const { code, output } = await runJson('add', 'a', 'new.json');
+      expect(code).toBe(1);
+      expect(output.error.code).toBe('UNEXPECTED');
+    } finally {
+      fs.chmodSync(context.project.dir, 0o700);
+    }
+  });
+
+  it('does not leak stderr-only mode into the next run', async () => {
+    await runJson('help');
+    await run(['help']);
+    expect(context.stdout).toHaveLength(1);
+  });
+});
+
+describe('main', () => {
+  it('sets process.exitCode instead of exiting', async () => {
+    const { argv, exitCode } = process;
+    process.argv = ['node', 'pici', 'nonsense'];
+    await main();
+    expect(process.exitCode).toBe(2);
+    process.argv = argv;
+    process.exitCode = exitCode;
   });
 });

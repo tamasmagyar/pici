@@ -7,9 +7,9 @@ Minimal CLI to install a subset of dependencies from your main `package.json`.
 
 Install only the dependencies you need from your main `package.json`, saving time and disk space. Perfect for monorepos, microservices, CI/CD, or when you only need a few tools.
 
-**How it works:** Temporarily creates a minimal `package.json` with only the packages you want to install, runs `npm install`, then restores your original files. Your `package.json`, `package-lock.json`, and `yarn.lock` files are automatically backed up and restored.
+**How it works:** Temporarily replaces `package.json` with a minimal one containing only the packages you want, runs `npm install`, then puts your original files back. `package.json`, `package-lock.json`, `npm-shrinkwrap.json` and `yarn.lock` are restored byte for byte whether the install succeeds, fails, or is interrupted (Ctrl+C, SIGTERM).
 
-> **Note:** Temporary backup files (`.pici.backup`) may appear briefly during installation but are automatically cleaned up.
+> **Note:** If pici itself is killed outright (SIGKILL, power loss), your originals are kept as `*.pici.backup`. Run `pici restore` to put them back. pici refuses to install until you do.
 
 ## Installation
 
@@ -54,25 +54,25 @@ npx --yes pici install
 npx --yes pici package.test.json
 ```
 
-### Install a single package
+### Install packages by name
 
 ```bash
-# If installed globally:
-pici install <package>          # Installs a package with version from package.json
-# Or using npx:
-npx --yes pici install <package>
+pici install react               # Version from package.json
+pici install react lodash        # Several at once
+pici install react@18.2.0        # Explicit version
 ```
+
+If any package is not found in `package.json`, nothing is installed.
 
 ### Add packages to a custom file
 
 ```bash
-# If installed globally:
-pici add lodash                 # Adds to package.custom.json
-pici add lodash package.test.json  # Adds to custom file
-# Or using npx:
-npx --yes pici add lodash
-npx --yes pici add lodash package.test.json
+pici add lodash                     # Adds to package.custom.json
+pici add lodash react@18            # Several, optionally with a version
+pici add lodash package.test.json   # Adds to a custom file
 ```
+
+Adding a package again without a version keeps the version already pinned in the file.
 
 ### Custom file format
 
@@ -81,41 +81,48 @@ Create a JSON file (e.g., `package.test.json`):
 ```json
 {
   "dependencies": {
-    "react": "",         // Uses version from package.json
-    "lodash": "4.17.21"  // Uses this specific version
+    "react": "",
+    "lodash": "4.17.21"
   }
 }
 ```
 
-Then install from it:
-```bash
-# If installed globally:
-pici install package.test.json
-# Or using npx:
-npx --yes pici install package.test.json
-```
+Then run `pici install package.test.json`, or just `pici package.test.json`.
 
-- Empty version: Uses version from main `package.json`
-- Specified version: Installs that version directly
+- Empty version (`react`): uses the version from the main `package.json`
+- Specified version (`lodash`): installs that version
 
 ### Specify dependency fields
 
 ```bash
-# If installed globally:
 pici install --fields=dependencies,devDependencies
-# Or using npx:
-npx --yes pici install --fields=dependencies,devDependencies
 ```
 
-By default, reads from `dependencies`, `devDependencies`, `peerDependencies`, and `optionalDependencies`.
+By default, reads from `dependencies`, `devDependencies`, `peerDependencies`, and `optionalDependencies`. If a package is in several, the first field listed wins.
 
-## Features
+### Options
 
-- Install only a subset of dependencies
-- Automatically backs up and restores `package.json`, `package-lock.json`, and `yarn.lock`
-- Safe to use with yarn projects (doesn't modify `yarn.lock`)
-- Supports all dependency fields
-- Custom dependency files
+| Option | Effect |
+| --- | --- |
+| `--dry-run` | Show what would happen without changing anything |
+| `--json` | Print one JSON result to stdout; logs go to stderr |
+| `--fields=<a,b>` | Dependency fields to read, in priority order |
+| `-h`, `--help` | Show help |
+| `-v`, `--version` | Show the version |
+
+Exit codes: `0` success, `1` failure, `2` usage error. If npm fails, pici exits with npm's code; if interrupted, with 128 + the signal number.
+
+## AI agents and scripts
+
+Use `--json` for machine-readable results with stable error codes, and `--dry-run` to preview. See [AGENTS.md](AGENTS.md) for the full contract.
+
+## Development
+
+```bash
+yarn install
+yarn test     # Builds, then runs unit and end-to-end tests (no registry needed)
+yarn verify   # Everything CI runs
+```
 
 ## License
 

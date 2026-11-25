@@ -4,6 +4,7 @@ const prettier = require('eslint-plugin-prettier');
 const prettierConfig = require('eslint-config-prettier');
 
 module.exports = tseslint.config(
+  { ignores: ['node_modules/', 'dist/', '*.js', 'test/helpers/fake-npm/'] },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -24,7 +25,6 @@ module.exports = tseslint.config(
         },
       ],
     },
-    ignores: ['node_modules/', 'dist/', '*.js', '!src/**/*.js'],
   }
 );
 

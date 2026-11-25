@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "rootDir": ".", "noEmit": true, "allowJs": false, "lib": ["ES2022"] },
+  "include": ["src", "test"],
+  "exclude": ["node_modules", "dist"]
+}
