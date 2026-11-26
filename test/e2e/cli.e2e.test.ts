@@ -124,7 +124,8 @@ describe('signals', () => {
     const { child, exited } = await startHanging();
     process.kill(-child.pid!, 'SIGKILL');
     await exited;
-    expect(project.readJson('package.json').name).toBe('pici-temp');
+    expect(project.readJson('package.json').piciTemp).toBe(true);
+    expect(project.exists('yarn.lock') || project.exists('npm-shrinkwrap.json')).toBe(true);
 
     // A second install must not back up the stub over the real package.json.
     const retry = pici(['install', 'foo', '--json']);

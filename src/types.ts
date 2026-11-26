@@ -18,10 +18,7 @@ export interface CustomPackageJson {
 }
 
 export type DependencyField =
-  | 'dependencies'
-  | 'devDependencies'
-  | 'peerDependencies'
-  | 'optionalDependencies';
+  'dependencies' | 'devDependencies' | 'peerDependencies' | 'optionalDependencies';
 
 export interface PackageSpec {
   name: string;

@@ -7,19 +7,24 @@ import {
   LOCK_FILES,
   MAIN_PACKAGE_FILE,
   NPM_INSTALL_ARGS,
+  TEMP_MARKER,
   TEMP_PACKAGE_NAME,
   TEMP_SUFFIX,
 } from './constants';
-import { stashFile, unstashFile, writeJsonFile, type FileBackup } from './file-utils';
+import { readJsonFile, stashFile, unstashFile, type FileBackup } from './file-utils';
+import { alignOverrides, readOverrides } from './overrides';
+import type { Lockfile } from './lockfile';
 import { PiciError, errorMessage } from './errors';
 import { formatPackageSpec } from './package-spec';
-import type { PackageSpec } from './types';
+import type { PackageJson, PackageSpec } from './types';
 
 export const FORWARDED_SIGNALS: readonly NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
 export interface InstallOptions {
   /** Send npm's stdout to stderr, keeping stdout clean for machine-readable output. */
   npmOutputToStderr?: boolean;
+  /** Where the versions of transitive dependencies come from. */
+  lockfile?: Lockfile | null;
 }
 
 interface SignalTrap {
@@ -100,15 +105,31 @@ function runNpmInstall(trap: SignalTrap, options: InstallOptions): Promise<void>
   });
 }
 
-function createTemporaryPackageJson(packages: readonly PackageSpec[]) {
+function readMainPackage(): PackageJson {
+  const mainPath = path.resolve(MAIN_PACKAGE_FILE);
+  return fs.existsSync(mainPath) ? readJsonFile<PackageJson>(mainPath) : {};
+}
+
+function createTemporaryPackageJson(
+  packages: readonly PackageSpec[],
+  lockfile: Lockfile | null
+): Record<string, unknown> {
+  const main = readMainPackage();
+  const dependencies = packages.reduce<Record<string, string>>((deps, { name, version }) => {
+    deps[name] = version || '*';
+    return deps;
+  }, {});
+  const overrides = alignOverrides(readOverrides(main, lockfile?.manager), dependencies);
+  // Keeping the name stops npm from renaming this package's link in a workspace.
+  const keepName = typeof main.name === 'string' && main.name && !(main.name in dependencies);
+
   return {
-    name: TEMP_PACKAGE_NAME,
-    version: '1.0.0',
+    name: keepName ? main.name : TEMP_PACKAGE_NAME,
+    version: typeof main.version === 'string' ? main.version : '1.0.0',
     private: true,
-    dependencies: packages.reduce<Record<string, string>>((deps, { name, version }) => {
-      deps[name] = version || '*';
-      return deps;
-    }, {}),
+    [TEMP_MARKER]: true,
+    dependencies,
+    ...(Object.keys(overrides).length > 0 ? { overrides } : {}),
   };
 }
 
@@ -142,32 +163,44 @@ export async function installPackages(
     return;
   }
 
-  const packageJsonPath = path.resolve(MAIN_PACKAGE_FILE);
-  const tempPath = `${packageJsonPath}${TEMP_SUFFIX}`;
+  const lockfile = options.lockfile || null;
+  const stub = createTemporaryPackageJson(packages, lockfile);
+  const temporary = new Map([[MAIN_PACKAGE_FILE, JSON.stringify(stub, null, 2) + '\n']]);
+  if (lockfile) {
+    temporary.set(lockfile.file, lockfile.render(stub));
+  }
+
   const backups: FileBackup[] = [];
-  // Set only once the stub is in place, so cleanup can never delete the user's own file.
-  let createdPackageJson = false;
+  // Files put in place, so cleanup can never delete one that belongs to the user.
+  const created: string[] = [];
   const trap = trapSignals();
 
   try {
-    writeJsonFile(tempPath, createTemporaryPackageJson(packages));
+    for (const [file, content] of temporary) {
+      fs.writeFileSync(path.resolve(`${file}${TEMP_SUFFIX}`), content, 'utf-8');
+    }
 
     for (const file of [...LOCK_FILES, MAIN_PACKAGE_FILE]) {
       backups.push(stashFile(file));
     }
 
-    fs.renameSync(tempPath, packageJsonPath);
-    createdPackageJson = true;
+    for (const file of temporary.keys()) {
+      fs.renameSync(path.resolve(`${file}${TEMP_SUFFIX}`), path.resolve(file));
+      created.push(path.resolve(file));
+    }
 
     logInfo(`Installing packages (${packages.map(formatPackageSpec).join(', ')}) using npm...`);
     await runNpmInstall(trap, options);
   } finally {
     try {
-      fs.rmSync(tempPath, { force: true });
-      // If there was no package.json to begin with, remove the stub.
-      const main = backups.find(backup => backup.originalPath === packageJsonPath);
-      if (createdPackageJson && !main?.exists) {
-        fs.rmSync(packageJsonPath, { force: true });
+      for (const file of temporary.keys()) {
+        fs.rmSync(path.resolve(`${file}${TEMP_SUFFIX}`), { force: true });
+      }
+      // Anything that was not there to begin with is removed rather than restored.
+      for (const { originalPath, exists } of backups) {
+        if (!exists && created.includes(originalPath)) {
+          fs.rmSync(originalPath, { force: true });
+        }
       }
     } finally {
       try {

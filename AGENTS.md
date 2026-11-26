@@ -17,24 +17,30 @@ Run non-interactively: `npx --yes pici@<version> <command> --json`. Pin a versio
 | --- | --- |
 | `--json` | Print exactly one JSON object to stdout; logs and npm output go to stderr |
 | `--dry-run` | Resolve and report without changing anything |
+| `--no-lockfile` | Ignore lock files and use the ranges in `package.json` |
 | `--fields=a,b` | `package.json` fields to read versions from, in priority order |
 | `--help`, `--version` | Print help or version |
 
 Recommended flow: run with `--dry-run --json`, check `packages` and `skipped`, then run without `--dry-run`.
 
+Versions come from `npm-shrinkwrap.json`, `package-lock.json` or `yarn.lock` (Yarn 1 and later), including transitive dependencies; `lockfile` in the result names the one used, or is null. Overrides and resolutions are applied. pnpm and Bun lock files are not read.
+
+npm may remove other packages from `node_modules`, so use pici on a fresh checkout.
+
 `install` runs npm, including the lifecycle scripts of the installed packages. Do not run it on untrusted input.
 
 ### JSON output
 
-Success. `install` returns `packages` and `skipped`, `add` returns `file` and `added`, `restore` returns `restored`:
+Success. `install` returns `packages`, `skipped` and `lockfile`, `add` returns `file` and `added`, `restore` returns `restored`:
 
 ```json
 {
   "ok": true,
   "command": "install",
   "dryRun": false,
-  "packages": [{ "name": "react", "version": "^18.2.0" }],
-  "skipped": []
+  "packages": [{ "name": "react", "version": "18.2.0" }],
+  "skipped": [],
+  "lockfile": "package-lock.json"
 }
 ```
 
@@ -60,6 +66,7 @@ Failure:
 | `INVALID_FILE` | Fix the JSON |
 | `INVALID_PACKAGE` | Fix the package name or version |
 | `PACKAGE_NOT_FOUND` | Add it to `package.json`, pass `name@version`, or widen `--fields` |
+| `UNSUPPORTED_VERSION` | `workspace:`, `catalog:` and similar cannot be installed by npm; pass `name@version` |
 | `LOCKED` | Wait for the other pici process, then retry |
 | `RESTORE_REQUIRED` | Run `pici restore`, then retry |
 | `RESTORE_CONFLICT` | Ask a human; do not delete either copy |
@@ -74,7 +81,7 @@ Never delete `*.pici.backup` files: one may be the only copy of the original.
 ## Working on this repo
 
 - `yarn verify` runs everything CI runs: lint, formatting, types, tests with coverage.
-- `src/` holds the code with unit tests next to it; `test/` holds end-to-end, fault-injection and docs tests.
+- `src/` holds the code with unit tests next to it; `test/` holds end-to-end, fault-injection and docs tests. `test/e2e/lockfile.e2e.test.ts` runs real npm against a local registry.
 - Tests use real temporary directories and a fake `npm` on `PATH` (`test/helpers/fake-npm`). Do not mock `fs` except to inject failures.
 - Invariant: after any exit except SIGKILL, `package.json` and all lock files are byte-for-byte unchanged. Test every new failure path for it.
 - Throw `PiciError` with a code; never call `process.exit`, which skips cleanup.

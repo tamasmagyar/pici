@@ -30,6 +30,7 @@ describe('parseArgs', () => {
       fields: DEFAULT_FIELDS,
       json: false,
       dryRun: false,
+      useLockfile: true,
     });
   });
 
@@ -153,6 +154,77 @@ describe('run: install', () => {
   });
 });
 
+describe('run: install with a lock file', () => {
+  const lock = {
+    lockfileVersion: 3,
+    packages: { '': { dependencies: { foo: '1.2.3' } }, 'node_modules/foo': { version: '1.2.3' } },
+  };
+
+  it('gives npm a temporary lock and restores the original', async () => {
+    context.project.write('package-lock.json', lock);
+    const { output } = await runJson('install', 'foo');
+    expect(output.lockfile).toBe('package-lock.json');
+    const [call] = context.project.npmCalls();
+    expect(JSON.parse(call.files['package-lock.json']).piciTemp).toBe(true);
+    expect(context.project.readJson('package-lock.json')).toEqual(lock);
+  });
+
+  it('hides the lock from npm with --no-lockfile', async () => {
+    context.project.write('package-lock.json', lock);
+    expect((await runJson('install', 'foo', '--no-lockfile')).output.lockfile).toBeNull();
+    expect(Object.keys(context.project.npmCalls()[0].files)).not.toContain('package-lock.json');
+    expect(context.project.readJson('package-lock.json')).toEqual(lock);
+  });
+
+  it('warns if package.json has changed since the lock was written', async () => {
+    context.project.write('package-lock.json', lock);
+    expect(await run(['install', 'bar'])).toBe(0);
+    expect(context.stderr.join()).toContain("package-lock.json has no version for 'bar@2.0.0'");
+    expect(installed()).toEqual([{ bar: '2.0.0' }]);
+  });
+
+  it('uses the forced version of a package that Yarn resolutions pin', async () => {
+    context.project.write('package.json', {
+      dependencies: { foo: '^1.0.0' },
+      resolutions: { foo: '1.1.1' },
+    });
+    context.project.write(
+      'yarn.lock',
+      '__metadata:\n  version: 8\n\n"foo@npm:1.1.1":\n  version: 1.1.1\n  resolution: "foo@npm:1.1.1"\n'
+    );
+    expect((await runJson('install', 'foo')).output.packages).toEqual([
+      { name: 'foo', version: '1.1.1' },
+    ]);
+  });
+});
+
+describe('run: install of versions npm cannot use', () => {
+  it.each(['workspace:*', 'catalog:'])('explains %s and does not run npm', async version => {
+    context.project.write('package.json', { dependencies: { foo: version } });
+    const { code, output } = await runJson('install', 'foo');
+    expect(code).toBe(1);
+    expect(output.error.code).toBe('UNSUPPORTED_VERSION');
+    expect(installed()).toEqual([]);
+  });
+
+  it('understands npm: ranges from Yarn 2+', async () => {
+    context.project.write('package.json', { dependencies: { foo: 'npm:^1.0.0' } });
+    expect(await run(['install', 'foo'])).toBe(0);
+    expect(installed()).toEqual([{ foo: '^1.0.0' }]);
+  });
+});
+
+describe('run: install without a package.json', () => {
+  beforeEach(() => fs.rmSync('package.json'));
+
+  it('only works for explicit versions', async () => {
+    expect((await runJson('install', 'foo')).output.error.code).toBe('FILE_NOT_FOUND');
+    expect(await run(['install', 'foo@1'])).toBe(0);
+    expect(installed()).toEqual([{ foo: '1' }]);
+    expect(context.project.snapshot()).toEqual({});
+  });
+});
+
 describe('run: install over another run', () => {
   // The stub contains 'foo' at a version that must never be read as the user's own.
   const STUB = { name: 'pici-temp', dependencies: { foo: '0.0.0-stub' } };
@@ -258,6 +330,7 @@ describe('run: --json', () => {
       dryRun: false,
       packages: [{ name: 'foo', version: '1.2.3' }],
       skipped: ['nope'],
+      lockfile: null,
     });
   });
 

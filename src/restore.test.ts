@@ -64,6 +64,30 @@ describe('restoreBackups', () => {
     expect(context.project.snapshot()).toEqual(before);
   });
 
+  it('replaces temporary lock files', () => {
+    leaveBehind({
+      'package.json': { name: 'app', piciTemp: true },
+      'package.json.pici.backup': 'main',
+      'package-lock.json': { piciTemp: true },
+      'package-lock.json.pici.backup': 'npm',
+      'yarn.lock': '# pici-temp\n# yarn lockfile v1\n',
+      'yarn.lock.pici.backup': 'yarn',
+      'yarn.lock.pici.temp': 'temp',
+    });
+    restoreBackups();
+    expect(context.project.snapshot()).toEqual({
+      'package.json': 'main',
+      'package-lock.json': 'npm',
+      'yarn.lock': 'yarn',
+    });
+  });
+
+  it('removes a stub left in a directory that had no package.json', () => {
+    leaveBehind({ 'package.json': { name: 'pici-temp', piciTemp: true } });
+    restoreBackups();
+    expect(context.project.snapshot()).toEqual({});
+  });
+
   it('only reports on a dry run', () => {
     leaveBehind({ 'package.json': STUB, 'package.json.pici.backup': 'main' });
     const before = context.project.snapshot();

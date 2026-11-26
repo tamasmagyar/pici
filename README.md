@@ -100,12 +100,31 @@ pici install --fields=dependencies,devDependencies
 
 By default, reads from `dependencies`, `devDependencies`, `peerDependencies`, and `optionalDependencies`. If a package is in several, the first field listed wins.
 
+### Versions and lock files
+
+Versions come from your lock file when there is one, so installs are reproducible. This includes the dependencies of the packages you install.
+
+| Project | Lock file | Forced versions |
+| --- | --- | --- |
+| npm | `npm-shrinkwrap.json`, `package-lock.json` | `overrides` |
+| Yarn 1 | `yarn.lock` | `resolutions` |
+| Yarn 2 and later | `yarn.lock` | `resolutions` |
+| pnpm, Bun | not read; ranges in `package.json` are used | `overrides` in `package.json` only |
+
+- A version you give yourself (`react@18.2.0`, or in a custom file) always wins.
+- Use `--no-lockfile` to ignore lock files.
+- pici always installs with npm into `node_modules`, also in Yarn projects. Registry settings are read from `.npmrc`, not `.yarnrc.yml`, and Yarn patches are not applied.
+- With a `yarn.lock`, transitive versions are pinned when `node_modules` is empty; otherwise npm keeps what is already installed if it fits.
+- npm may remove packages you did not ask for from an existing `node_modules`. pici is meant for fresh checkouts such as CI.
+- `workspace:`, `catalog:` and other versions npm does not understand are reported as errors.
+
 ### Options
 
 | Option | Effect |
 | --- | --- |
 | `--dry-run` | Show what would happen without changing anything |
 | `--json` | Print one JSON result to stdout; logs go to stderr |
+| `--no-lockfile` | Ignore lock files and use the ranges in `package.json` |
 | `--fields=<a,b>` | Dependency fields to read, in priority order |
 | `-h`, `--help` | Show help |
 | `-v`, `--version` | Show the version |

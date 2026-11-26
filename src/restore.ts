@@ -1,6 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { LOCK_FILES, MAIN_PACKAGE_FILE, TEMP_PACKAGE_NAME, TEMP_SUFFIX } from './constants';
+import {
+  LOCK_FILES,
+  MAIN_PACKAGE_FILE,
+  TEMP_MARKER,
+  TEMP_PACKAGE_NAME,
+  TEMP_SUFFIX,
+  TEMP_YARN_HEADER,
+} from './constants';
 import { describeBackup, readJsonFile, unstashFile, type FileBackup } from './file-utils';
 import { PiciError } from './errors';
 import { acquireWorkspaceLock, assertNotLocked } from './workspace-lock';
@@ -11,18 +18,33 @@ export function findLeftoverBackups(): FileBackup[] {
   return MANAGED_FILES.map(describeBackup).filter(backup => fs.existsSync(backup.backupPath));
 }
 
-function isTemporaryPackageJson(filePath: string): boolean {
+/** Recognises the files pici puts in place while npm runs. */
+function isTemporary(filePath: string): boolean {
   try {
-    return readJsonFile(filePath).name === TEMP_PACKAGE_NAME;
+    if (path.basename(filePath) === 'yarn.lock') {
+      return fs.readFileSync(filePath, 'utf-8').startsWith(TEMP_YARN_HEADER);
+    }
+    const json = readJsonFile(filePath);
+    const isMain = path.basename(filePath) === MAIN_PACKAGE_FILE;
+    // pici 4.0.0 and older identified its package.json by name only.
+    return json[TEMP_MARKER] === true || (isMain && json.name === TEMP_PACKAGE_NAME);
   } catch {
     return false;
   }
 }
 
+/** Temporary files with no original, left by a killed run in a directory that had none. */
+function findOrphans(): string[] {
+  return MANAGED_FILES.map(describeBackup)
+    .filter(file => file.exists && !fs.existsSync(file.backupPath))
+    .map(file => file.originalPath)
+    .filter(isTemporary);
+}
+
 function assertNoLeftovers(): void {
-  const leftovers = findLeftoverBackups();
+  const leftovers = [...findLeftoverBackups().map(b => b.backupPath), ...findOrphans()];
   if (leftovers.length > 0) {
-    const paths = leftovers.map(backup => backup.backupPath).join(', ');
+    const paths = leftovers.join(', ');
     throw new PiciError(
       'RESTORE_REQUIRED',
       `A previous run did not clean up (${paths}). Run 'pici restore' first.`
@@ -54,13 +76,9 @@ export async function withWorkspace<T>(
   }
 }
 
-/** A file is safe to replace if it is missing or is the stub that pici itself wrote. */
+/** A file is safe to replace if it is missing or was written by pici. */
 function isConflict(backup: FileBackup): boolean {
-  if (!backup.exists) {
-    return false;
-  }
-  const isMain = backup.originalPath === path.resolve(MAIN_PACKAGE_FILE);
-  return !isMain || !isTemporaryPackageJson(backup.originalPath);
+  return backup.exists && !isTemporary(backup.originalPath);
 }
 
 /**
@@ -73,6 +91,7 @@ export function restoreBackups({ dryRun = false }: { dryRun?: boolean } = {}): s
 
   try {
     const backups = findLeftoverBackups();
+    const orphans = findOrphans();
     const conflicts = backups.filter(isConflict);
 
     if (conflicts.length > 0) {
@@ -88,7 +107,12 @@ export function restoreBackups({ dryRun = false }: { dryRun?: boolean } = {}): s
       for (const backup of backups) {
         unstashFile({ ...backup, exists: true });
       }
-      fs.rmSync(path.resolve(`${MAIN_PACKAGE_FILE}${TEMP_SUFFIX}`), { force: true });
+      for (const orphan of orphans) {
+        fs.rmSync(orphan, { force: true });
+      }
+      for (const file of MANAGED_FILES) {
+        fs.rmSync(path.resolve(`${file}${TEMP_SUFFIX}`), { force: true });
+      }
     }
 
     return backups.map(backup => path.basename(backup.originalPath));

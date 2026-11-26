@@ -37,7 +37,13 @@ export function useProject() {
   afterEach(() => {
     vi.restoreAllMocks();
     process.chdir(originalCwd);
-    process.env = originalEnv;
+    // Key by key: child processes do not see a replaced `process.env` object on Node 26.
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) {
+        delete process.env[key];
+      }
+    }
+    Object.assign(process.env, originalEnv);
     context.project.cleanup();
   });
 

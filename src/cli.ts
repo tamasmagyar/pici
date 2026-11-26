@@ -3,7 +3,9 @@ import * as path from 'node:path';
 import { resolveFromCustomFile, resolveFromNames, addPackages } from './package-utils';
 import { installPackages } from './package-manager';
 import { restoreBackups, withWorkspace } from './restore';
-import { DEFAULT_CUSTOM_FILE, DEFAULT_FIELDS } from './constants';
+import { DEFAULT_CUSTOM_FILE, DEFAULT_FIELDS, MAIN_PACKAGE_FILE } from './constants';
+import { loadLockfile, type Lockfile } from './lockfile';
+import { readJsonFile } from './file-utils';
 import { logInfo, logSuccess, logError, logWarn, setStderrOnly } from './logger';
 import { PiciError, usageError, errorMessage, EXIT_FAILURE } from './errors';
 import { formatPackageSpec } from './package-spec';
@@ -20,6 +22,7 @@ Usage:
 
 Options:
   --fields=<a,b>   package.json fields to read versions from, in priority order
+  --no-lockfile    Ignore lock files and use the ranges in package.json
   --dry-run        Show what would happen without changing anything
   --json           Print one JSON result to stdout; logs go to stderr
   -h, --help       Show this help
@@ -38,6 +41,7 @@ export interface ParsedArgs {
   fields: readonly string[];
   json: boolean;
   dryRun: boolean;
+  useLockfile: boolean;
 }
 
 function parseFields(value: string): string[] {
@@ -59,6 +63,7 @@ export function parseArgs(args: readonly string[]): ParsedArgs {
   let fields: readonly string[] = DEFAULT_FIELDS;
   let json = false;
   let dryRun = false;
+  let useLockfile = true;
   let override: Command | undefined;
 
   for (let i = 0; i < args.length; i++) {
@@ -67,6 +72,8 @@ export function parseArgs(args: readonly string[]): ParsedArgs {
       json = true;
     } else if (arg === '--dry-run') {
       dryRun = true;
+    } else if (arg === '--no-lockfile') {
+      useLockfile = false;
     } else if (arg === '--help' || arg === '-h') {
       override = 'help';
     } else if (arg === '--version' || arg === '-v') {
@@ -83,7 +90,7 @@ export function parseArgs(args: readonly string[]): ParsedArgs {
   }
 
   const [first, ...rest] = positionals;
-  const options = { fields, json, dryRun };
+  const options = { fields, json, dryRun, useLockfile };
 
   if (override) {
     return { command: override, operands: [], ...options };
@@ -107,7 +114,16 @@ export function getVersion(): string {
 
 type Result = Record<string, unknown>;
 
-function resolveInstall({ operands, fields }: ParsedArgs): {
+function readLockfile(): Lockfile | null {
+  const mainPath = path.resolve(MAIN_PACKAGE_FILE);
+  // Without a package.json there is nothing a lock file could refer to.
+  return fs.existsSync(mainPath) ? loadLockfile(readJsonFile(mainPath).packageManager) : null;
+}
+
+function resolveInstall(
+  { operands, fields }: ParsedArgs,
+  lockfile: Lockfile | null
+): {
   packages: PackageSpec[];
   skipped: string[];
 } {
@@ -118,9 +134,9 @@ function resolveInstall({ operands, fields }: ParsedArgs): {
     throw usageError('Pass either one custom file or package names, not both.');
   }
   if (names.length > 0) {
-    return { packages: resolveFromNames(names, fields), skipped: [] };
+    return { packages: resolveFromNames(names, fields, lockfile), skipped: [] };
   }
-  return resolveFromCustomFile(files[0] || DEFAULT_CUSTOM_FILE, fields);
+  return resolveFromCustomFile(files[0] || DEFAULT_CUSTOM_FILE, fields, lockfile);
 }
 
 function runInstall(args: ParsedArgs): Promise<Result> {
@@ -128,7 +144,8 @@ function runInstall(args: ParsedArgs): Promise<Result> {
 }
 
 async function resolveAndInstall(args: ParsedArgs): Promise<Result> {
-  const { packages, skipped } = resolveInstall(args);
+  const lockfile = args.useLockfile ? readLockfile() : null;
+  const { packages, skipped } = resolveInstall(args, lockfile);
 
   for (const name of skipped) {
     logWarn(
@@ -141,11 +158,11 @@ async function resolveAndInstall(args: ParsedArgs): Promise<Result> {
   } else if (args.dryRun) {
     logInfo(`Would install: ${packages.map(formatPackageSpec).join(', ')}`);
   } else {
-    await installPackages(packages, { npmOutputToStderr: args.json });
+    await installPackages(packages, { npmOutputToStderr: args.json, lockfile });
     logSuccess(`Installed ${packages.length} package(s).`);
   }
 
-  return { packages, skipped };
+  return { packages, skipped, lockfile: lockfile ? lockfile.file : null };
 }
 
 function runAdd({ operands, dryRun }: ParsedArgs): Result {

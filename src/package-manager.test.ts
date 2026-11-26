@@ -28,9 +28,10 @@ describe('installPackages while npm runs', () => {
     const [call] = context.project.npmCalls();
     expect(call.args).toEqual(NPM_INSTALL_ARGS);
     expect(JSON.parse(call.files['package.json'])).toEqual({
-      name: 'pici-temp',
+      name: 'precious',
       version: '1.0.0',
       private: true,
+      piciTemp: true,
       dependencies: { foo: '^1.0.0', '@s/bar': '*' },
     });
     expect(Object.keys(call.files).sort()).toEqual([
@@ -41,6 +42,24 @@ describe('installPackages while npm runs', () => {
       'package.json.pici.backup',
       'yarn.lock.pici.backup',
     ]);
+  });
+
+  it.each([
+    ['a requested package', { name: 'foo', version: '3.0.0' }, 'pici-temp', '3.0.0'],
+    ['nothing', {}, 'pici-temp', '1.0.0'],
+    ['something invalid', { name: 1, version: 2 }, 'pici-temp', '1.0.0'],
+  ])('names the stub safely if package.json is named after %s', async (_l, main, name, version) => {
+    context.project.write('package.json', main);
+    await run();
+    const stub = JSON.parse(context.project.npmCalls()[0].files['package.json']);
+    expect(stub).toMatchObject({ name, version });
+  });
+
+  it('passes overrides on', async () => {
+    context.project.write('package.json', { overrides: { foo: '9', deep: '1' } });
+    await run();
+    const stub = JSON.parse(context.project.npmCalls()[0].files['package.json']);
+    expect(stub.overrides).toEqual({ foo: '^1.0.0', deep: '1' });
   });
 
   it('lets npm write to the terminal by default', async () => {
